@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
@@ -30,19 +31,29 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white">Alpha Web</h1>
-          <p className="text-gray-400 mt-2">Sistema ERP — Mega Audio</p>
+
+        <div className="flex flex-col items-center mb-8">
+          <Image
+            src="/brand/Logo-Mega-Audio-con-Texto.png"
+            alt="Mega Audio"
+            width={280}
+            height={80}
+            priority
+            className="mb-3"
+          />
+          <span className="text-sm text-gray-500 tracking-wide uppercase font-medium">
+            Sistema ERP
+          </span>
         </div>
 
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 shadow-xl">
-          <h2 className="text-xl font-semibold text-white mb-6">Iniciar sesión</h2>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <h2 className="text-lg font-semibold text-gray-800 mb-6">Iniciar sesión</h2>
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Correo electrónico
               </label>
               <input
@@ -50,13 +61,13 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                placeholder="tu@empresa.com"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                placeholder="tu@mega-audio.com.mx"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1e2756] focus:border-transparent transition text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Contraseña
               </label>
               <input
@@ -65,12 +76,12 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 placeholder="••••••••"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1e2756] focus:border-transparent transition text-sm"
               />
             </div>
 
             {error && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-400">
+              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-600">
                 {error}
               </div>
             )}
@@ -78,15 +89,22 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold rounded-lg px-4 py-2.5 transition"
+              className="w-full flex items-center justify-center gap-2 bg-[#1e2756] hover:bg-[#16204a] disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold rounded-lg px-4 py-2.5 transition text-sm"
             >
-              {loading ? 'Ingresando...' : 'Ingresar'}
+              {loading ? (
+                <>
+                  <Image src="/brand/loader.gif" alt="cargando" width={18} height={18} unoptimized />
+                  Ingresando...
+                </>
+              ) : (
+                'Ingresar'
+              )}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-gray-600 text-sm mt-6">
-          Alpha Web ERP © {new Date().getFullYear()}
+        <p className="text-center text-gray-400 text-xs mt-6">
+          Mega Audio © {new Date().getFullYear()} · Mega Variedad, Mega Confianza
         </p>
       </div>
     </div>

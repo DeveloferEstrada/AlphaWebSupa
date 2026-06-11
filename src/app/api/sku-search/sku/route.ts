@@ -3,14 +3,20 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const CIB_URL = 'http://200.188.56.106:4080/Art-Cib'
 
-export async function GET(request: NextRequest) {
+async function handleRequest(request: NextRequest) {
   const auth = await verifyBearerToken(request.headers.get('Authorization'))
   if (!auth) {
     return NextResponse.json({ error: 'No autorizado.' }, { status: 401 })
   }
 
+  // SKU: body (POST) → query param → vacío
+  // Vercel descarta body en GET, por eso también aceptamos ?SKU=
   const body = await request.json().catch(() => null)
-  const sku = String(body?.SKU ?? '').trim()
+  const sku = String(
+    body?.SKU ?? body?.sku ??
+    request.nextUrl.searchParams.get('SKU') ??
+    request.nextUrl.searchParams.get('sku') ?? ''
+  ).trim()
 
   if (!sku) {
     return NextResponse.json({ error: 'SKU es requerido.' }, { status: 400 })
@@ -43,7 +49,6 @@ export async function GET(request: NextRequest) {
 
     const responseText = await response.text()
 
-    // Passthrough idéntico — mismo status, mismo body
     return new NextResponse(responseText, {
       status: response.status,
       headers: { 'Content-Type': 'application/json' },
@@ -54,4 +59,14 @@ export async function GET(request: NextRequest) {
       { status: 502 }
     )
   }
+}
+
+// GET original (clientes existentes) — SKU vía query param: ?SKU=36233631
+export async function GET(request: NextRequest) {
+  return handleRequest(request)
+}
+
+// POST alias — SKU vía body: {"SKU": "36233631"}
+export async function POST(request: NextRequest) {
+  return handleRequest(request)
 }

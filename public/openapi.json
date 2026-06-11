@@ -1,0 +1,332 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "MegaAudio Proveedores API",
+    "description": "API REST para la integración de proveedores con el sistema CIB de MegaAudio.\n\n## Autenticación\nTodos los endpoints (excepto `/api/auth/login` y `/api/auth/refresh`) requieren un `Bearer Token`.\n\n**Flujo:**\n1. `POST /api/auth/login` → obtén `access_token` y `refresh_token`\n2. Incluye el header `Authorization: Bearer {access_token}` en cada petición\n3. Cuando expire, usa `POST /api/auth/refresh` con el `refresh_token`",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Sistemas MegaAudio",
+      "email": "sistemas@mega-audio.com.mx"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://alpha-web-supa.vercel.app",
+      "description": "Producción"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token obtenido de `POST /api/auth/login`"
+      }
+    },
+    "schemas": {
+      "TokenResponse": {
+        "type": "object",
+        "properties": {
+          "token_type": { "type": "string", "example": "Bearer" },
+          "access_token": { "type": "string", "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
+          "expires_in": { "type": "integer", "example": 1800, "description": "Segundos de validez del access_token" },
+          "refresh_token": { "type": "string", "example": "v1.eyJhbGci..." }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string", "example": "Mensaje de error." }
+        }
+      },
+      "ProductWarehouse": {
+        "type": "object",
+        "description": "Clave = código de almacén, valor = objeto con stock",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "stock": { "type": "integer", "example": 10 }
+          }
+        },
+        "example": { "05": { "stock": 10 }, "07": { "stock": 0 } }
+      },
+      "SkuResult": {
+        "type": "object",
+        "properties": {
+          "sku": { "type": "string", "example": "36233631" },
+          "manufacturer_sku": { "type": "string", "example": "ONN TV STICK" },
+          "manufacturer": { "type": "string", "example": "ONN TV STICK" },
+          "ean": { "type": "string", "example": "681131422352" },
+          "title": { "type": "string", "example": "ONN TV STICK" },
+          "description": { "type": "string", "example": "ONN TV STICK" },
+          "currency": { "type": "string", "example": "MXN" },
+          "price": { "type": "number", "format": "float", "example": 369.83 },
+          "warehouses": { "$ref": "#/components/schemas/ProductWarehouse" }
+        }
+      },
+      "CreateOrderProduct": {
+        "type": "object",
+        "required": ["sku", "quantity"],
+        "properties": {
+          "sku": { "type": "string", "example": "36233631" },
+          "quantity": { "type": "integer", "minimum": 1, "example": 2 }
+        }
+      },
+      "CreateOrderRequest": {
+        "type": "object",
+        "required": ["purchase_order_number", "warehouse", "products"],
+        "properties": {
+          "purchase_order_number": { "type": "string", "example": "OC-2025-001" },
+          "warehouse": { "type": "integer", "example": 5, "description": "Código del almacén destino" },
+          "products": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/components/schemas/CreateOrderProduct" }
+          }
+        }
+      },
+      "WaybillRequest": {
+        "type": "object",
+        "required": ["order_number", "waybills", "carrier", "file"],
+        "properties": {
+          "order_number": { "type": "string", "example": "ORD-123456" },
+          "waybills": { "type": "string", "example": "1Z999AA10123456784", "description": "Número(s) de guía" },
+          "carrier": { "type": "string", "example": "DHL" },
+          "file": {
+            "type": "string",
+            "description": "PDF en base64. Acepta formato puro o con prefijo `data:application/pdf;base64,...`",
+            "example": "JVBERi0xLjQKJ..."
+          }
+        }
+      }
+    }
+  },
+  "security": [{ "BearerAuth": [] }],
+  "tags": [
+    { "name": "Autenticación", "description": "Login, refresh y verificación de token" },
+    { "name": "Catálogo", "description": "Consulta de artículos CIB" },
+    { "name": "Órdenes", "description": "Creación de órdenes de compra en CIB" },
+    { "name": "Guías", "description": "Carga de waybills / guías de envío" }
+  ],
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Autenticación"],
+        "summary": "Login de proveedor",
+        "description": "Autentica al proveedor y devuelve `access_token` + `refresh_token`.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["Username", "Password"],
+                "properties": {
+                  "Username": { "type": "string", "example": "CyberPuerta" },
+                  "Password": { "type": "string", "format": "password", "example": "Cyb3RPu3rT@API" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login exitoso",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenResponse" } } }
+          },
+          "400": { "description": "Username o Password faltantes", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "description": "Credenciales inválidas", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": ["Autenticación"],
+        "summary": "Renovar access token",
+        "description": "Usa el `refresh_token` para obtener un nuevo `access_token` sin necesidad de re-autenticar.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["RefreshToken"],
+                "properties": {
+                  "RefreshToken": { "type": "string", "example": "v1.eyJhbGci..." }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Token renovado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenResponse" } } } },
+          "400": { "description": "RefreshToken faltante", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "description": "Refresh inválido o expirado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Autenticación"],
+        "summary": "Verificar token",
+        "description": "Devuelve los datos del proveedor autenticado. Útil para validar que el token es correcto.",
+        "responses": {
+          "200": {
+            "description": "Token válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sub": { "type": "string", "format": "uuid", "example": "550e8400-e29b-41d4-a716-446655440000" },
+                    "unique_name": { "type": "string", "example": "CyberPuerta" },
+                    "email": { "type": "string", "example": "cyberpuerta@suppliers.mega-audio.com.mx" },
+                    "user_type": { "type": "string", "example": "supplier" },
+                    "role": { "type": "string", "nullable": true, "example": null },
+                    "provider_code": { "type": "string", "example": "CyberPuerta" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "No autorizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/sku-search/sku": {
+      "get": {
+        "tags": ["Catálogo"],
+        "summary": "Buscar artículo por SKU (GET)",
+        "description": "Consulta precio y existencias de un artículo. El SKU se pasa como query parameter.",
+        "parameters": [
+          {
+            "name": "SKU",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "example": "36233631" },
+            "description": "Código SKU del artículo"
+          }
+        ],
+        "responses": {
+          "200": { "description": "Artículo encontrado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SkuResult" } } } },
+          "400": { "description": "SKU no proporcionado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "description": "No autorizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "502": { "description": "Error al contactar CIB", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Catálogo"],
+        "summary": "Buscar artículo por SKU (POST)",
+        "description": "Alternativa POST para consultar precio y existencias. El SKU se pasa en el body.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["SKU"],
+                "properties": {
+                  "SKU": { "type": "string", "example": "36233631" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Artículo encontrado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SkuResult" } } } },
+          "400": { "description": "SKU no proporcionado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "description": "No autorizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "502": { "description": "Error al contactar CIB", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/full-catalog": {
+      "get": {
+        "tags": ["Catálogo"],
+        "summary": "Catálogo completo del proveedor",
+        "description": "Devuelve todos los artículos disponibles para el proveedor autenticado (`SKU=ALL`).",
+        "responses": {
+          "200": {
+            "description": "Lista de artículos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/SkuResult" }
+                }
+              }
+            }
+          },
+          "401": { "description": "No autorizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "502": { "description": "Error al contactar CIB", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/create-order-cib": {
+      "post": {
+        "tags": ["Órdenes"],
+        "summary": "Crear orden de compra en CIB",
+        "description": "Envía una orden de compra al sistema CIB. La respuesta es un passthrough directo del sistema externo.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateOrderRequest" },
+              "example": {
+                "purchase_order_number": "OC-2025-001",
+                "warehouse": 5,
+                "products": [
+                  { "sku": "36233631", "quantity": 2 },
+                  { "sku": "12345678", "quantity": 1 }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Orden creada exitosamente (respuesta directa de CIB)" },
+          "400": { "description": "Datos incompletos o inválidos", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "description": "No autorizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "502": { "description": "Error al contactar CIB", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/waybillcib": {
+      "post": {
+        "tags": ["Guías"],
+        "summary": "Cargar guía de envío (Waybill)",
+        "description": "Registra una guía de envío para una orden. El flujo es:\n1. Decodifica y almacena el PDF\n2. Notifica al sistema CIB (`Gui-Cib`)\n3. Envía correo de confirmación a MegaAudio con el PDF adjunto",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/WaybillRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Waybill registrado correctamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "result": { "type": "integer", "example": 1 }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Campos requeridos faltantes o base64 inválido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "description": "No autorizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "PDF guardado y CIB OK, pero falló el envío de correo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "502": { "description": "Error en CIB o respuesta inesperada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    }
+  }
+}

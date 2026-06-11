@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/server'
+import DashboardNav from '@/components/layout/DashboardNav'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -28,6 +29,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </button>
         </form>
       </nav>
+      <DashboardNav />
       <main className="p-6 max-w-6xl mx-auto">{children}</main>
     </div>
   )

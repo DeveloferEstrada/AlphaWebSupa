@@ -3,12 +3,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
-  if (!body?.Username || !body?.Password) {
+  const username = String(body?.Username ?? body?.username ?? '').trim()
+  const password = String(body?.Password ?? body?.password ?? '')
+
+  if (!username || !password) {
     return NextResponse.json({ error: 'Username y Password son requeridos.' }, { status: 400 })
   }
-
-  const username = String(body.Username).trim()
-  const password = String(body.Password)
 
   // Mapeo: username → email interno para Supabase Auth
   const email = `${username.toLowerCase()}@suppliers.mega-audio.com.mx`

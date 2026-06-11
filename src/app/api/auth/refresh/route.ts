@@ -3,13 +3,15 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
-  if (!body?.RefreshToken) {
+  const refreshToken = String(body?.RefreshToken ?? body?.refresh_token ?? '')
+
+  if (!refreshToken) {
     return NextResponse.json({ error: 'RefreshToken es requerido.' }, { status: 400 })
   }
 
   const supabase = createAdminClient()
   const { data, error } = await supabase.auth.refreshSession({
-    refresh_token: String(body.RefreshToken),
+    refresh_token: refreshToken,
   })
 
   if (error || !data.session) {

@@ -73,7 +73,7 @@ export async function fetchOrdersPage(
     createdEndDate: endDate,
     limit: '100',
   })
-  if (nextCursor) params.set('nextCursor', nextCursor)
+  if (nextCursor) params.set('nextCursorMark', nextCursor)
 
   const res = await fetch(`${BASE_URL}/v3/orders?${params}`, {
     headers: {
@@ -95,12 +95,9 @@ export async function fetchOrdersPage(
 
   const json = await res.json()
 
-  // Debug: log top-level keys to understand MX production response structure
-  throw new Error(`[DEBUG] Walmart response keys: ${Object.keys(json).join(',')} | json: ${JSON.stringify(json).slice(0, 500)}`)
-
-  // Walmart wraps response in list.elements.order[]
-  const meta = json?.list?.meta ?? {}
-  const rawOrders: unknown[] = json?.list?.elements?.order ?? []
+  // MX production: { meta: { totalCount, limit, nextCursorMark }, order: [...] }
+  const meta = json?.meta ?? json?.list?.meta ?? {}
+  const rawOrders: unknown[] = json?.order ?? json?.list?.elements?.order ?? []
 
   const orders: WalmartOrder[] = rawOrders.map((o: unknown) => {
     const order = o as Record<string, unknown>
@@ -170,7 +167,7 @@ export async function fetchOrdersPage(
 
   return {
     orders,
-    nextCursor: meta.nextCursor as string | undefined,
+    nextCursor: (meta.nextCursorMark ?? meta.nextCursor) as string | undefined,
     totalCount: meta.totalCount as number | undefined,
   }
 }

@@ -31,13 +31,19 @@ export async function uploadProductFile(formData: FormData) {
   if (!file || file.size === 0) throw new Error('Selecciona un archivo.')
   if (!file.name.toLowerCase().endsWith('.xlsx')) throw new Error('Solo se aceptan archivos .xlsx')
 
-  if (version === 'v2') {
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const wb = XLSX.read(buffer, { type: 'buffer', sheetRows: 1 })
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1 })
-    const headers = (rows[0] ?? []).map((h: unknown) => String(h ?? '').trim().toUpperCase())
+  const fileBuffer0 = Buffer.from(await file.arrayBuffer())
+  const wb = XLSX.read(fileBuffer0, { type: 'buffer', sheetRows: 1 })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1 })
+  const headers = (rows[0] ?? []).map((h: unknown) => String(h ?? '').trim().toUpperCase())
 
+  if (version === 'v1') {
+    if (headers.includes('GUIA')) {
+      throw new Error('Este archivo parece ser V2, súbelo en el apartado correcto.')
+    }
+  }
+
+  if (version === 'v2') {
     if (!headers.includes('NO DE PARTE')) {
       throw new Error('El archivo no contiene la columna "NO DE PARTE". ¿Es el archivo V2 correcto?')
     }
@@ -50,11 +56,10 @@ export async function uploadProductFile(formData: FormData) {
   const storagePath = `cyberpuerta/${version}/${today}.xlsx`
 
   const adminClient = createAdminClient()
-  const fileBuffer = await file.arrayBuffer()
 
   const { error: uploadError } = await adminClient.storage
     .from('productos')
-    .upload(storagePath, fileBuffer, {
+    .upload(storagePath, fileBuffer0, {
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       upsert: true,
     })

@@ -71,7 +71,7 @@ export async function fetchOrdersPage(
   const params = new URLSearchParams({
     createdStartDate: startDate,
     createdEndDate: endDate,
-    limit: '200',
+    limit: '100',
   })
   if (nextCursor) params.set('nextCursor', nextCursor)
 

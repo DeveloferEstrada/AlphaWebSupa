@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getWalmartToken, fetchOrdersPage } from '@/lib/walmart'
+import { getWalmartToken, fetchOrdersPage, WalmartOrder } from '@/lib/walmart'
 import { revalidatePath } from 'next/cache'
 
 export async function syncWalmartOrders(): Promise<{ synced: number; error?: string }> {
@@ -32,7 +32,7 @@ export async function syncWalmartOrders(): Promise<{ synced: number; error?: str
 
   let cursor: string | undefined
   let totalSynced = 0
-  const MAX_PAGES = 10
+  const MAX_PAGES = 50
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const { orders, nextCursor } = await fetchOrdersPage(token, startDate, endDate, cursor)
@@ -40,7 +40,8 @@ export async function syncWalmartOrders(): Promise<{ synced: number; error?: str
     if (!orders.length) break
 
     for (const order of orders) {
-      const orderTotal = order.orderLines.reduce((sum, l) => sum + l.totalPrice, 0)
+      const orderTotal = (order as WalmartOrder & { _total: number })._total
+        ?? order.orderLines.reduce((sum, l) => sum + l.totalPrice, 0)
 
       await admin.from('walmart_orders').upsert(
         {
@@ -77,7 +78,8 @@ export async function syncWalmartOrders(): Promise<{ synced: number; error?: str
       totalSynced++
     }
 
-    if (!nextCursor) break
+    // '*' is Solr's initial cursor — if returned again, there are no more pages
+    if (!nextCursor || nextCursor === '*' || nextCursor === cursor) break
     cursor = nextCursor
   }
 

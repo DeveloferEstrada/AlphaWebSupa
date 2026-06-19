@@ -103,48 +103,41 @@ export async function fetchOrdersPage(
     const order = o as Record<string, unknown>
     const lines: WalmartOrderLine[] = []
 
-    const rawLines =
-      (order?.orderLines as Record<string, unknown>)?.orderLine ?? []
-    const lineArr = Array.isArray(rawLines) ? rawLines : [rawLines]
+    // MX production: orderLines is a direct array. US: orderLines.orderLine
+    const rawLinesData = order?.orderLines
+    const lineArr: Record<string, unknown>[] = Array.isArray(rawLinesData)
+      ? (rawLinesData as Record<string, unknown>[])
+      : (((rawLinesData as Record<string, unknown>)?.orderLine as unknown[]) ?? []) as Record<string, unknown>[]
 
-    for (const l of lineArr as Record<string, unknown>[]) {
-      const charges =
-        ((l?.charges as Record<string, unknown>)?.charge as unknown[]) ?? []
-      const chargeArr = Array.isArray(charges) ? charges : [charges]
+    for (const l of lineArr) {
+      // MX production: charges is a direct array. US: charges.charge
+      const chargesData = l?.charges
+      const chargeArr: Record<string, unknown>[] = Array.isArray(chargesData)
+        ? (chargesData as Record<string, unknown>[])
+        : (((chargesData as Record<string, unknown>)?.charge as unknown[]) ?? []) as Record<string, unknown>[]
 
       let unitPrice = 0
-      let totalPrice = 0
-      for (const c of chargeArr as Record<string, unknown>[]) {
+      for (const c of chargeArr) {
         if ((c?.chargeType as string) === 'PRODUCT') {
           unitPrice = Number((c?.chargeAmount as Record<string, unknown>)?.amount ?? 0)
         }
-        if ((c?.chargeType as string) === 'PRODUCT') {
-          totalPrice += unitPrice
-        }
       }
 
-      const qty = Number(
-        (l?.orderLineQuantity as Record<string, unknown>)?.amount ?? 1
-      )
-      totalPrice = unitPrice * qty
+      const qty = Number((l?.orderLineQuantity as Record<string, unknown>)?.amount ?? 1)
+      const totalPrice = unitPrice * qty
 
-      const lineStatuses =
-        (
-          (l?.orderLineStatuses as Record<string, unknown>)
-            ?.orderLineStatus as unknown[]
-        ) ?? []
-      const statusArr = Array.isArray(lineStatuses)
-        ? lineStatuses
-        : [lineStatuses]
-      const lineStatus =
-        ((statusArr[0] as Record<string, unknown>)?.status as string) ?? ''
+      // MX production: orderLineStatus is a direct array. US: orderLineStatuses.orderLineStatus
+      const lineStatusData = l?.orderLineStatus
+        ?? (l?.orderLineStatuses as Record<string, unknown>)?.orderLineStatus
+      const statusArr: Record<string, unknown>[] = Array.isArray(lineStatusData)
+        ? (lineStatusData as Record<string, unknown>[])
+        : lineStatusData ? [lineStatusData as Record<string, unknown>] : []
+      const lineStatus = (statusArr[0]?.status as string) ?? ''
 
       lines.push({
-        lineNumber: String(l?.lineNumber ?? ''),
+        lineNumber: String(l?.primeLineNumber ?? l?.lineNumber ?? l?.coLineNumber ?? ''),
         sku: String((l?.item as Record<string, unknown>)?.sku ?? ''),
-        productName: String(
-          (l?.item as Record<string, unknown>)?.productName ?? ''
-        ),
+        productName: String((l?.item as Record<string, unknown>)?.productName ?? ''),
         quantity: qty,
         unitPrice,
         totalPrice,
@@ -152,12 +145,18 @@ export async function fetchOrdersPage(
       })
     }
 
-    const orderTotal = lines.reduce((sum, l) => sum + l.totalPrice, 0)
+    // MX production: orderTotal.amount exists directly. Fallback: sum lines.
+    const orderTotal = order?.orderTotal
+      ? Number((order.orderTotal as Record<string, unknown>)?.amount ?? 0)
+      : lines.reduce((sum, l) => sum + l.totalPrice, 0)
+
+    // MX production: no top-level status field; derive from first line.
+    const orderStatus = (order?.status as string) || (lines[0]?.status ?? '')
 
     return {
       purchaseOrderId: String(order?.purchaseOrderId ?? ''),
       customerOrderId: String(order?.customerOrderId ?? ''),
-      status: String(order?.status ?? ''),
+      status: orderStatus,
       orderDate: String(order?.orderDate ?? ''),
       orderLines: lines,
       raw: o,

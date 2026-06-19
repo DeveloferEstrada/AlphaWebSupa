@@ -73,7 +73,8 @@ export async function fetchOrdersPage(
     createdEndDate: endDate,
     limit: '100',
   })
-  if (nextCursor) params.set('nextCursorMark', nextCursor)
+  // Response field is nextCursorMark; request parameter is nextCursor
+  if (nextCursor) params.set('nextCursor', nextCursor)
 
   const res = await fetch(`${BASE_URL}/v3/orders?${params}`, {
     headers: {

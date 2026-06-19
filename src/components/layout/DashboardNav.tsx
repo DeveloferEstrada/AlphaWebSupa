@@ -13,6 +13,7 @@ const ALL_LINKS: NavLink[] = [
   { href: '/dashboard', label: 'Inicio' },
   { href: '/dashboard/users', label: 'Usuarios', roles: ['admin'] },
   { href: '/dashboard/productos', label: 'Productos', roles: ['admin', 'operations', 'ventas'] },
+  { href: '/dashboard/cxc', label: 'CxC', roles: ['admin', 'finance', 'cxc'] },
 ]
 
 interface Props {

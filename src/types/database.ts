@@ -1,5 +1,5 @@
 export type UserType = 'internal' | 'supplier'
-export type UserRole = 'admin' | 'finance' | 'operations' | 'systems' | 'ventas'
+export type UserRole = 'admin' | 'finance' | 'operations' | 'systems' | 'ventas' | 'cxc'
 
 export interface Profile {
   id: string

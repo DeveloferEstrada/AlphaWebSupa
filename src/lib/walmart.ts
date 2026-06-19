@@ -30,6 +30,9 @@ export async function getWalmartToken(): Promise<string> {
   }
 
   const data = await res.json()
+  console.log('[Walmart] token response keys:', Object.keys(data))
+  console.log('[Walmart] token type:', data.token_type)
+  console.log('[Walmart] access_token preview:', String(data.access_token ?? '').slice(0, 40))
   return data.access_token as string
 }
 

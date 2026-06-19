@@ -95,6 +95,9 @@ export async function fetchOrdersPage(
 
   const json = await res.json()
 
+  // Debug: log top-level keys to understand MX production response structure
+  throw new Error(`[DEBUG] Walmart response keys: ${Object.keys(json).join(',')} | json: ${JSON.stringify(json).slice(0, 500)}`)
+
   // Walmart wraps response in list.elements.order[]
   const meta = json?.list?.meta ?? {}
   const rawOrders: unknown[] = json?.list?.elements?.order ?? []

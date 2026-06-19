@@ -27,7 +27,7 @@ export async function syncWalmartOrders(): Promise<{ synced: number; error?: str
   const token = await getWalmartToken()
   const admin = createAdminClient()
 
-  const startDate = '2026-01-01T00:00:00.000Z'
+  const startDate = '2024-01-01T00:00:00.000Z'
   const endDate = new Date().toISOString()
 
   let cursor: string | undefined

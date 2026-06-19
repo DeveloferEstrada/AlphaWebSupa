@@ -9,6 +9,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   if (!user) redirect('/login')
 
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, user_type')
+    .eq('id', user.id)
+    .single()
+
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-[#1e2756] px-6 py-3 flex items-center justify-between shadow-md">
@@ -29,7 +35,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </button>
         </form>
       </nav>
-      <DashboardNav />
+      <DashboardNav role={profile?.role} userType={profile?.user_type} />
       <main className="p-6 max-w-6xl mx-auto">{children}</main>
     </div>
   )

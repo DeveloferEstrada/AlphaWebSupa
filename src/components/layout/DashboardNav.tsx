@@ -3,19 +3,35 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-const links = [
+interface NavLink {
+  href: string
+  label: string
+  roles?: string[]
+}
+
+const ALL_LINKS: NavLink[] = [
   { href: '/dashboard', label: 'Inicio' },
-  { href: '/dashboard/users', label: 'Usuarios' },
+  { href: '/dashboard/users', label: 'Usuarios', roles: ['admin'] },
+  { href: '/dashboard/productos', label: 'Productos', roles: ['admin', 'operations', 'ventas'] },
 ]
 
-export default function DashboardNav() {
+interface Props {
+  role?: string | null
+  userType?: string | null
+}
+
+export default function DashboardNav({ role, userType }: Props) {
   const pathname = usePathname()
+
+  const links = ALL_LINKS.filter(
+    link => !link.roles || (userType === 'internal' && link.roles.includes(role ?? ''))
+  )
 
   return (
     <div className="bg-white border-b border-gray-200 px-6">
       <nav className="flex gap-1">
         {links.map(({ href, label }) => {
-          const active = pathname === href
+          const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
           return (
             <Link
               key={href}

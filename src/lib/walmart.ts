@@ -30,10 +30,11 @@ export async function getWalmartToken(): Promise<string> {
   }
 
   const data = await res.json()
-  console.log('[Walmart] token response keys:', Object.keys(data))
-  console.log('[Walmart] token type:', data.token_type)
-  console.log('[Walmart] access_token preview:', String(data.access_token ?? '').slice(0, 40))
-  return data.access_token as string
+  const token = data.access_token as string
+  if (!token) {
+    throw new Error(`Walmart auth: token vacío. Respuesta: ${JSON.stringify(data)}`)
+  }
+  return token
 }
 
 export interface WalmartOrdersPage {
@@ -92,7 +93,8 @@ export async function fetchOrdersPage(
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`Walmart orders error (${res.status}): ${text}`)
+    const tokenPreview = token.slice(0, 30)
+    throw new Error(`Walmart orders error (${res.status}) token[${tokenPreview}]: ${text}`)
   }
 
   const json = await res.json()

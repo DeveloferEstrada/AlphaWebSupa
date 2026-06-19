@@ -64,6 +64,10 @@ export async function fetchOrdersPage(
   endDate: string,
   nextCursor?: string
 ): Promise<WalmartOrdersPage> {
+  const credentials = Buffer.from(
+    `${process.env.WALMART_CLIENT_ID}:${process.env.WALMART_CLIENT_SECRET}`
+  ).toString('base64')
+
   const params = new URLSearchParams({
     createdStartDate: startDate,
     createdEndDate: endDate,
@@ -73,6 +77,7 @@ export async function fetchOrdersPage(
 
   const res = await fetch(`${BASE_URL}/v3/orders?${params}`, {
     headers: {
+      Authorization: `Basic ${credentials}`,
       'WM_SEC.ACCESS_TOKEN': token,
       'WM_MARKET': MARKET,
       'WM_QOS.CORRELATION_ID': cid(),

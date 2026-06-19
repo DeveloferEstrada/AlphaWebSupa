@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { Fragment, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { syncWalmartOrders } from './actions'
 
@@ -166,9 +166,8 @@ export default function CxcDashboard({ orders, totalAmount, lastSynced }: Props)
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map(order => (
-                <>
+                <Fragment key={order.purchase_order_id}>
                   <tr
-                    key={order.purchase_order_id}
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => setExpanded(expanded === order.purchase_order_id ? null : order.purchase_order_id)}
                   >
@@ -188,13 +187,13 @@ export default function CxcDashboard({ orders, totalAmount, lastSynced }: Props)
                     </td>
                   </tr>
                   {expanded === order.purchase_order_id && (
-                    <tr key={`${order.purchase_order_id}-detail`}>
+                    <tr>
                       <td colSpan={6} className="px-4 pb-4 bg-gray-50">
                         <OrderDetail purchaseOrderId={order.purchase_order_id} />
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>

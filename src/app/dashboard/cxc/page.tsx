@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import CxcDashboard from './CxcDashboard'
 
 export default async function CxcPage() {
@@ -21,13 +22,16 @@ export default async function CxcPage() {
     redirect('/dashboard')
   }
 
-  const { data: orders } = await supabase
+  const admin = createAdminClient()
+  const { data: orders, error } = await admin
     .from('walmart_orders')
     .select('purchase_order_id, customer_order_id, status, order_date, total_amount, synced_at')
     .order('order_date', { ascending: false })
 
-  const totalAmount = (orders ?? []).reduce((sum, o) => sum + (o.total_amount ?? 0), 0)
-  const lastSynced = orders?.[0]?.synced_at
+  if (error) console.error('[CxcPage] orders query error:', error.message)
+
+  const totalAmount = (orders ?? []).reduce((sum, o) => sum + (Number(o.total_amount) ?? 0), 0)
+  const lastSynced = orders?.[0]?.synced_at ?? undefined
 
   return (
     <CxcDashboard

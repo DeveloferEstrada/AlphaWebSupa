@@ -1,0 +1,11 @@
+{
+  "name": "walmart-automation",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "sync": "node walmart-sync.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.45.0"
+  }
+}

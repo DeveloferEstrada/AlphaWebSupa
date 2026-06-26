@@ -38,70 +38,110 @@ async function requireCxcUser() {
 
 // ─── Orders ──────────────────────────────────────────────────────
 
-export async function syncWalmartOrders(): Promise<{ synced: number; error?: string }> {
+async function upsertOrderBatch(admin: ReturnType<typeof createAdminClient>, orders: WalmartOrder[]) {
+  const syncedAt = new Date().toISOString()
+
+  await admin.from('walmart_orders').upsert(
+    orders.map(order => ({
+      purchase_order_id: order.purchaseOrderId,
+      customer_order_id: order.customerOrderId,
+      status: order.status,
+      order_date: order.orderDate || null,
+      total_amount: (order as WalmartOrder & { _total: number })._total
+        ?? order.orderLines.reduce((s, l) => s + l.totalPrice, 0),
+      currency: 'MXN',
+      raw_data: order.raw,
+      synced_at: syncedAt,
+    })),
+    { onConflict: 'purchase_order_id' }
+  )
+
+  const poIds = orders.map(o => o.purchaseOrderId)
+  await admin.from('walmart_order_lines').delete().in('purchase_order_id', poIds)
+
+  const allLines = orders.flatMap(order =>
+    order.orderLines.map(l => ({
+      purchase_order_id: order.purchaseOrderId,
+      line_number: l.lineNumber,
+      sku: l.sku,
+      product_name: l.productName,
+      quantity: l.quantity,
+      unit_price: l.unitPrice,
+      total_price: l.totalPrice,
+      status: l.status,
+    }))
+  )
+  if (allLines.length > 0) {
+    await admin.from('walmart_order_lines').insert(allLines)
+  }
+}
+
+export async function syncWalmartOrders(): Promise<{
+  synced: number
+  period: string
+  done: boolean
+  error?: string
+}> {
   await requireCxcUser()
   const token = await getWalmartToken()
   const admin = createAdminClient()
 
-  const startDate = '2024-01-01T00:00:00.000Z'
-  const endDate = new Date().toISOString()
+  // Read sync progress
+  const { data: state } = await admin
+    .from('walmart_sync_state')
+    .select('orders_synced_until')
+    .eq('id', 1)
+    .maybeSingle()
 
-  let cursor: string | undefined
+  const syncedUntil = new Date(state?.orders_synced_until ?? '2024-01-01T00:00:00Z')
+  const now = new Date()
+
+  // Process up to 12 weekly windows per call (~3 months of history)
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+  const MAX_WEEKS = 12
+
+  let current = new Date(syncedUntil)
+  const periodStart = new Date(current)
   let totalSynced = 0
-  const MAX_PAGES = 50
+  let weeksProcessed = 0
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const { orders, nextCursor } = await fetchOrdersPage(token, startDate, endDate, cursor)
+  while (current < now && weeksProcessed < MAX_WEEKS) {
+    const windowEnd = new Date(Math.min(current.getTime() + WEEK_MS, now.getTime()))
 
-    if (!orders.length) break
+    let cursor: string | undefined
+    for (let page = 0; page < 10; page++) {
+      const { orders, nextCursor } = await fetchOrdersPage(
+        token,
+        current.toISOString(),
+        windowEnd.toISOString(),
+        cursor
+      )
+      if (!orders.length) break
 
-    const syncedAt = new Date().toISOString()
+      await upsertOrderBatch(admin, orders)
+      totalSynced += orders.length
 
-    // Batch upsert all orders in page (1 DB call instead of 100)
-    await admin.from('walmart_orders').upsert(
-      orders.map(order => ({
-        purchase_order_id: order.purchaseOrderId,
-        customer_order_id: order.customerOrderId,
-        status: order.status,
-        order_date: order.orderDate || null,
-        total_amount: (order as WalmartOrder & { _total: number })._total
-          ?? order.orderLines.reduce((s, l) => s + l.totalPrice, 0),
-        currency: 'MXN',
-        raw_data: order.raw,
-        synced_at: syncedAt,
-      })),
-      { onConflict: 'purchase_order_id' }
-    )
-
-    // Batch delete + insert order lines (2 DB calls instead of 200)
-    const poIds = orders.map(o => o.purchaseOrderId)
-    await admin.from('walmart_order_lines').delete().in('purchase_order_id', poIds)
-
-    const allLines = orders.flatMap(order =>
-      order.orderLines.map(l => ({
-        purchase_order_id: order.purchaseOrderId,
-        line_number: l.lineNumber,
-        sku: l.sku,
-        product_name: l.productName,
-        quantity: l.quantity,
-        unit_price: l.unitPrice,
-        total_price: l.totalPrice,
-        status: l.status,
-      }))
-    )
-    if (allLines.length > 0) {
-      await admin.from('walmart_order_lines').insert(allLines)
+      if (!nextCursor || nextCursor === '*' || nextCursor === cursor) break
+      cursor = nextCursor
     }
 
-    totalSynced += orders.length
-
-    // '*' is Solr's initial cursor — if returned again, there are no more pages
-    if (!nextCursor || nextCursor === '*' || nextCursor === cursor) break
-    cursor = nextCursor
+    current = new Date(windowEnd)
+    weeksProcessed++
   }
 
+  // Save progress
+  await admin.from('walmart_sync_state').upsert({
+    id: 1,
+    orders_synced_until: current.toISOString(),
+    updated_at: now.toISOString(),
+  })
+
+  const done = current >= now
+  const fmt = (d: Date) => d.toLocaleDateString('es-MX', { month: 'short', year: 'numeric' })
+  const period = `${fmt(periodStart)} → ${fmt(current)}`
+
   revalidatePath('/dashboard/cxc')
-  return { synced: totalSynced }
+  return { synced: totalSynced, period, done }
 }
 
 // ─── Payments ────────────────────────────────────────────────────

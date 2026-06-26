@@ -24,6 +24,13 @@ export default async function CxcPage() {
 
   const admin = createAdminClient()
 
+  // Sync state
+  const { data: syncState } = await admin
+    .from('walmart_sync_state')
+    .select('orders_synced_until')
+    .eq('id', 1)
+    .maybeSingle()
+
   // Orders
   const { data: orders, error: ordersError } = await admin
     .from('walmart_orders')
@@ -49,11 +56,16 @@ export default async function CxcPage() {
   const totalAmount = (orders ?? []).reduce((sum, o) => sum + (Number(o.total_amount) ?? 0), 0)
   const lastSynced = orders?.[0]?.synced_at ?? undefined
 
+  const syncedUntil = syncState?.orders_synced_until ?? '2024-01-01T00:00:00Z'
+  const syncDone = new Date(syncedUntil) >= new Date()
+
   return (
     <CxcDashboard
       orders={orders ?? []}
       totalAmount={totalAmount}
       lastSynced={lastSynced}
+      syncedUntil={syncedUntil}
+      syncDone={syncDone}
       lastPaymentRequest={lastPaymentReq ?? null}
       paymentLines={paymentLines ?? []}
     />

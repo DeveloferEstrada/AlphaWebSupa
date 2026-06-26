@@ -33,6 +33,8 @@ interface Props {
   orders: Order[]
   totalAmount: number
   lastSynced?: string
+  syncedUntil: string
+  syncDone: boolean
   lastPaymentRequest: PaymentRequest | null
   paymentLines: PaymentLineRow[]
 }
@@ -75,7 +77,7 @@ function conceptoColor(c: string) {
 const ASYNC_PENDING = ['RECEIVED', 'INPROGRESS', 'IN_PROGRESS', 'PENDING']
 
 export default function CxcDashboard({
-  orders, totalAmount, lastSynced,
+  orders, totalAmount, lastSynced, syncedUntil, syncDone,
   lastPaymentRequest, paymentLines,
 }: Props) {
   const router = useRouter()
@@ -121,7 +123,11 @@ export default function CxcDashboard({
     startTransition(async () => {
       try {
         const result = await syncWalmartOrders()
-        setMsg(`Órdenes sincronizadas — ${result.synced} actualizadas.`)
+        if (result.done) {
+          setMsg(`Historial completo. ${result.synced} órdenes sincronizadas (${result.period}).`)
+        } else {
+          setMsg(`${result.synced} órdenes cargadas — ${result.period}. Haz clic de nuevo para continuar.`)
+        }
         router.refresh()
       } catch (err: unknown) {
         setMsg(`Error: ${err instanceof Error ? err.message : 'Error inesperado'}`)
@@ -178,14 +184,17 @@ export default function CxcDashboard({
         <div>
           <h1 className="text-xl font-bold text-[#1e2756]">Cuentas por Cobrar — Walmart</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            {lastSynced ? `Última sync órdenes: ${fmtDate(lastSynced)}` : 'Sin sincronización aún'}
+            {syncDone
+            ? `Historial completo · última sync: ${fmtDate(lastSynced ?? '')}`
+            : `Historial cargado hasta: ${fmtDate(syncedUntil)} · haz clic para continuar`
+          }
           </p>
         </div>
         <div className="flex gap-2">
           {tab === 'orders' && (
             <button onClick={handleSyncOrders} disabled={isPending}
               className="bg-[#1e2756] hover:bg-[#16204a] disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
-              {isPending ? 'Sincronizando...' : '↻ Sincronizar Órdenes'}
+              {isPending ? 'Cargando...' : syncDone ? '↻ Actualizar recientes' : '↻ Cargar más historial'}
             </button>
           )}
           {tab === 'payments' && (

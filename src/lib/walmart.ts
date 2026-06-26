@@ -213,26 +213,29 @@ export function parsePaymentCSV(csv: string): PaymentLine[] {
   const lines = csv.split('\n').map(l => l.trim()).filter(Boolean)
   if (lines.length < 2) return []
 
+  // Row 0 = English headers, Row 1 = Spanish headers (dual-header format from Walmart MX portal)
+  // Detect dual headers: if row 1 starts with "Fecha" it's a Spanish translation row — skip it
   const headers = parseCSVLine(lines[0])
+  const dataStart = lines[1].startsWith('Fecha') ? 2 : 1
   const results: PaymentLine[] = []
 
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = dataStart; i < lines.length; i++) {
     const values = parseCSVLine(lines[i])
     const row: Record<string, string> = {}
     headers.forEach((h, idx) => { row[h] = values[idx] ?? '' })
 
-    const orderNum = (
-      row['Numero de pedido'] ?? row['Order Number'] ?? row['orderNumber'] ?? ''
-    ).split('-')[0].trim()
+    // "Orderline Number" format: "600000079049680-1" — strip line suffix to get order number
+    const rawOrderline = row['Orderline Number'] ?? row['Numero de pedido'] ?? row['Order Number'] ?? ''
+    const orderNum = rawOrderline.replace(/-\d+$/, '').trim()
 
     results.push({
-      paymentDate: row['Fecha de pago'] ?? row['Payment Date'] ?? '',
+      paymentDate: row['Payment Date'] ?? row['Fecha de pago'] ?? '',
       orderNumber: orderNum,
-      amount: Number(row['Importe pagado por Walmart'] ?? row['Amount'] ?? '0'),
-      concepto: row['Concepto'] ?? row['Transaction Type'] ?? '',
-      ingresoEgreso: row['Ingreso / Egreso'] ?? '',
-      invoiceRef: String(row['Referencia a Factura'] ?? row['Invoice Reference'] ?? ''),
-      fulfillmentModel: row['Modelo entrega Segura'] ?? row['LINEA'] ?? '',
+      amount: Number(row['Amount'] ?? row['Monto'] ?? row['Importe pagado por Walmart'] ?? '0'),
+      concepto: row['Concept'] ?? row['Concepto'] ?? row['Transaction Type'] ?? '',
+      ingresoEgreso: row['Income / Outcome'] ?? row['Ingreso / Egreso'] ?? '',
+      invoiceRef: row['Invoice Number'] ?? row['Referencia a Factura'] ?? row['Invoice Reference'] ?? '',
+      fulfillmentModel: row['FulfilledBy'] ?? row['Modelo entrega Segura'] ?? row['LINEA'] ?? '',
       raw: row,
     })
   }

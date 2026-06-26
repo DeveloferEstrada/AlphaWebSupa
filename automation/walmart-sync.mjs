@@ -1,22 +1,17 @@
 /**
  * Walmart Seller Center — automatic payment statement downloader
  *
- * Flow:
- *  1. Login to seller.walmart.com
- *  2. Navigate to /payments/statements/period
- *  3. Open "Descargar declaraciones anteriores" modal
- *  4. Collect all available statement dates from the dropdown
- *  5. For each date: download CSV, POST to the import API
- *
- * Required env vars:
- *   WALMART_SELLER_EMAIL      — seller account email
- *   WALMART_SELLER_PASSWORD   — seller account password
- *   IMPORT_API_URL            — https://your-app.vercel.app/api/cron/import-payments
- *   IMPORT_CRON_SECRET        — shared secret (same value as CRON_SECRET on Vercel)
+ * UI Flow (confirmed from portal screenshots):
+ *  1. Navigate to /payments/statements/period  →  triggers login redirect if needed
+ *  2. Fill credentials on login page
+ *  3. Back on statements page: click "Descargar" link (top-right)
+ *  4. In dropdown: click "Declaración anterior"
+ *  5. Modal opens: native <select> with dates like "Jun 25, 2026"
+ *  6. Select each date, click "Descargar" button → download CSV
+ *  7. POST CSV to import API
  */
 
 import { chromium } from 'playwright'
-import { createWriteStream } from 'fs'
 import { readFile, unlink } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -26,8 +21,7 @@ const PASSWORD = process.env.WALMART_SELLER_PASSWORD
 const API_URL  = process.env.IMPORT_API_URL
 const SECRET   = process.env.IMPORT_CRON_SECRET
 
-const PORTAL_BASE = 'https://seller.walmart.com'
-const PAYMENTS_URL = `${PORTAL_BASE}/payments/statements/period`
+const PAYMENTS_URL = 'https://seller.walmart.com/payments/statements/period'
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
@@ -41,34 +35,33 @@ async function main() {
     timezoneId: 'America/Mexico_City',
   })
   const page = await context.newPage()
-  page.setDefaultTimeout(30_000)
+  page.setDefaultTimeout(60_000)
 
   try {
-    await login(page)
-    await page.goto(PAYMENTS_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-    // Wait for any heading or content — avoids networkidle timeout on SPAs
-    await page.waitForSelector('h1, [class*="payment"], [class*="statement"], main', { timeout: 30_000 })
+    // Navigate and login — returns with page on PAYMENTS_URL
+    await navigateAndLogin(page)
 
+    // Get all available statement dates from the modal select
     const dates = await getAvailableDates(page)
     if (!dates.length) {
-      console.log('No statement dates found in modal. Check selectors.')
+      console.log('No dates found in modal. Saving screenshot for debug.')
       await page.screenshot({ path: 'debug-no-dates.png' })
       return
     }
+    console.log(`Found ${dates.length} dates:`, dates.map(d => d.label).join(', '))
 
-    console.log(`Found ${dates.length} statement dates:`, dates.map(d => d.label).join(', '))
-
+    // Download and import each date
     let ok = 0, fail = 0
     for (const date of dates) {
       try {
-        console.log(`\nDownloading ${date.label}...`)
+        console.log(`\nProcessing ${date.label}...`)
         const { csvText, filename } = await downloadStatement(page, date)
+        console.log(`  Downloaded ${filename} (${csvText.length} bytes)`)
         await importToAPI(csvText, filename)
-        console.log(`  ✓ Imported ${filename}`)
         ok++
       } catch (err) {
         console.error(`  ✗ ${date.label}: ${err.message}`)
-        await page.screenshot({ path: `debug-error-${date.value ?? date.label}.png` })
+        await page.screenshot({ path: `debug-error-${date.value.replace(/[^a-z0-9]/gi, '_')}.png` })
         fail++
       }
     }
@@ -83,173 +76,152 @@ async function main() {
   }
 }
 
-// ─── Login ───────────────────────────────────────────────────────────────────
+// ─── Navigate & Login ─────────────────────────────────────────────────────────
 
-async function login(page) {
-  console.log('Navigating to Seller Center...')
-  // Go directly to payments page — it will redirect to login if not authenticated
+async function navigateAndLogin(page) {
+  console.log('Navigating to payments page...')
   await page.goto(PAYMENTS_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-  await page.waitForTimeout(2000)
+  await page.waitForTimeout(3000)
 
-  const urlAfterNav = page.url()
-  console.log('URL after navigation:', urlAfterNav)
+  const url = page.url()
+  console.log('Current URL:', url)
+  await page.screenshot({ path: 'debug-initial.png' })
 
-  // If already on the payments page we're done (unlikely in fresh headless context)
-  if (urlAfterNav.includes('/payments/statements')) {
-    console.log('Already authenticated.')
+  // If already on statements page, we're done
+  if (url.includes('/payments/statements')) {
+    console.log('Already on statements page.')
+    await waitForStatementsPage(page)
     return
   }
 
-  // Fill email
+  // Fill login form
+  console.log('Login page detected, filling credentials...')
+
+  // Email field (may be on its own screen)
   await page.waitForSelector(
-    'input[type="email"], input[name="email"], input[id*="email" i], input[autocomplete="email"]',
+    'input[type="email"], input[name="email"], input[id*="email" i], input[autocomplete="username"]',
     { timeout: 30_000 }
   )
-  console.log('Filling email...')
   await page.fill(
-    'input[type="email"], input[name="email"], input[id*="email" i], input[autocomplete="email"]',
+    'input[type="email"], input[name="email"], input[id*="email" i], input[autocomplete="username"]',
     EMAIL
   )
+  await page.screenshot({ path: 'debug-email-filled.png' })
 
-  // Some flows split email / password on separate screens
+  // "Continue" or "Next" button (two-step login)
   const continueBtn = page.locator(
-    'button:has-text("Continue"), button:has-text("Continuar"), button:has-text("Next")'
+    'button:has-text("Continue"), button:has-text("Continuar"), button:has-text("Next"), button:has-text("Siguiente")'
   )
   if (await continueBtn.count() > 0) {
     await continueBtn.first().click()
     await page.waitForTimeout(2000)
   }
 
-  // Fill password
+  // Password field
   await page.waitForSelector('input[type="password"]', { timeout: 20_000 })
-  console.log('Filling password...')
   await page.fill('input[type="password"]', PASSWORD)
+  await page.screenshot({ path: 'debug-password-filled.png' })
 
   // Submit
   await page.click(
-    'button[type="submit"], button:has-text("Sign In"), button:has-text("Log In"), button:has-text("Iniciar sesión")'
+    'button[type="submit"], button:has-text("Sign In"), button:has-text("Log In"), button:has-text("Iniciar sesión"), button:has-text("Ingresar")'
   )
 
-  // Wait for redirect away from login
-  await page.waitForURL(url => !url.includes('login') && !url.includes('signin'), { timeout: 30_000 })
-  await page.waitForTimeout(2000)
-
-  console.log('Login OK — URL:', page.url())
+  // Wait until we land somewhere other than the login page
+  await page.waitForFunction(
+    () => !window.location.href.includes('login') && !window.location.href.includes('signin'),
+    { timeout: 30_000 }
+  )
+  await page.waitForTimeout(3000)
+  console.log('Post-login URL:', page.url())
   await page.screenshot({ path: 'debug-after-login.png' })
+
+  // If not on statements yet, navigate there
+  if (!page.url().includes('/payments/statements')) {
+    await page.goto(PAYMENTS_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
+    await page.waitForTimeout(2000)
+  }
+
+  await waitForStatementsPage(page)
+  console.log('Login OK')
+}
+
+async function waitForStatementsPage(page) {
+  // Wait for the "Estado de cuenta" heading or the Descargar link
+  await page.waitForSelector(
+    'h1, a:has-text("Descargar"), button:has-text("Descargar"), [href*="statement"]',
+    { timeout: 30_000 }
+  )
+  await page.waitForTimeout(1000)
 }
 
 // ─── Get available dates ──────────────────────────────────────────────────────
 
 async function getAvailableDates(page) {
-  await page.goto(PAYMENTS_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-  await page.waitForSelector('h1, [class*="payment"], main', { timeout: 30_000 })
-  await page.waitForTimeout(2000)
+  await openDeclaracionAnteriorModal(page)
 
-  // Open the download dropdown
-  await page.click(
-    '[aria-label*="Descargar" i], button:has-text("Descargar"), a:has-text("Descargar")',
-    { timeout: 10_000 }
+  // Read dates from native <select>
+  const select = page.locator('select').last()
+  await select.waitFor({ timeout: 10_000 })
+
+  const dates = await select.evaluate(el =>
+    Array.from(el.options).map(o => ({ value: o.value, label: o.text.trim() }))
   )
-  await page.waitForTimeout(600)
 
-  // Click "Descargar declaraciones anteriores"
-  await page.click('text=Descargar declaraciones anteriores', { timeout: 8_000 })
-  await page.waitForTimeout(800)
-
-  // Wait for the modal
-  await page.waitForSelector('[role="dialog"], [class*="Modal"], [class*="modal"]', { timeout: 10_000 })
-
-  // Extract options from the date picker (native <select> or custom dropdown)
-  const dates = await extractDropdownOptions(page)
-
-  // Close modal
+  // Close modal with Escape
   await page.keyboard.press('Escape')
   await page.waitForTimeout(500)
 
-  return dates
-}
-
-async function extractDropdownOptions(page) {
-  // Try native <select> first
-  const nativeSelect = page.locator('select').last()
-  if (await nativeSelect.count() > 0) {
-    return await nativeSelect.evaluate(el =>
-      Array.from(el.options).map(o => ({ value: o.value, label: o.text.trim() }))
-    )
-  }
-
-  // Try custom dropdown (Ant Design, MUI, etc.) — open it first
-  const combobox = page.locator('[role="combobox"], [class*="select" i]').first()
-  if (await combobox.count() > 0) {
-    await combobox.click()
-    await page.waitForTimeout(500)
-
-    const options = await page.locator('[role="option"], [class*="option" i]').all()
-    const result = []
-    for (const opt of options) {
-      const text = (await opt.textContent())?.trim()
-      if (text) result.push({ value: text, label: text })
-    }
-    return result
-  }
-
-  return []
+  return dates.filter(d => d.label && d.label !== 'Seleccionar una fecha de declaración')
 }
 
 // ─── Download a single statement ─────────────────────────────────────────────
 
 async function downloadStatement(page, date) {
-  await page.goto(PAYMENTS_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-  await page.waitForSelector('h1, [class*="payment"], main', { timeout: 30_000 })
-  await page.waitForTimeout(1500)
+  await openDeclaracionAnteriorModal(page)
 
-  // Open download dropdown
-  await page.click(
-    '[aria-label*="Descargar" i], button:has-text("Descargar"), a:has-text("Descargar")',
-    { timeout: 10_000 }
-  )
-  await page.waitForTimeout(600)
-
-  // Open modal
-  await page.click('text=Descargar declaraciones anteriores', { timeout: 8_000 })
-  await page.waitForTimeout(800)
-  await page.waitForSelector('[role="dialog"], [class*="Modal"], [class*="modal"]', { timeout: 10_000 })
-
-  // Select the date
-  await selectDate(page, date)
+  // Select the date in the native <select>
+  const select = page.locator('select').last()
+  await select.waitFor({ timeout: 10_000 })
+  await select.selectOption({ label: date.label })
   await page.waitForTimeout(500)
+  await page.screenshot({ path: `debug-selected-${date.value.replace(/[^a-z0-9]/gi, '_')}.png` })
 
-  // Click Descargar inside modal and capture download
+  // Click Descargar button inside the modal
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 60_000 }),
-    page.locator('[role="dialog"] button:has-text("Descargar"), [class*="Modal"] button:has-text("Descargar")').click(),
+    page.locator('button:has-text("Descargar")').last().click(),
   ])
 
-  const suggestedFilename = download.suggestedFilename() || `statement_${date.label}.csv`
-  const tmpPath = join(tmpdir(), suggestedFilename)
+  const filename = download.suggestedFilename() || `statement_${date.label.replace(/[^a-z0-9]/gi, '_')}.csv`
+  const tmpPath = join(tmpdir(), filename)
   await download.saveAs(tmpPath)
 
   const csvText = await readFile(tmpPath, 'utf-8')
   await unlink(tmpPath).catch(() => {})
 
-  return { csvText, filename: suggestedFilename }
+  return { csvText, filename }
 }
 
-async function selectDate(page, date) {
-  // Native <select>
-  const nativeSelect = page.locator('select').last()
-  if (await nativeSelect.count() > 0) {
-    await nativeSelect.selectOption({ label: date.label })
-    return
+// ─── Open the "Declaración anterior" modal ───────────────────────────────────
+
+async function openDeclaracionAnteriorModal(page) {
+  // Ensure we're on the statements page
+  if (!page.url().includes('/payments/statements')) {
+    await page.goto(PAYMENTS_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
+    await waitForStatementsPage(page)
   }
 
-  // Custom dropdown: click combobox then click the matching option
-  const combobox = page.locator('[role="combobox"], [class*="select" i]').first()
-  if (await combobox.count() > 0) {
-    await combobox.click()
-    await page.waitForTimeout(400)
-    await page.locator(`[role="option"]:has-text("${date.label}")`).click()
-  }
+  // Click the "Descargar" link/button (top right of the page)
+  await page.locator('a:has-text("Descargar"), button:has-text("Descargar")').first().click()
+  await page.waitForTimeout(600)
+
+  // Click "Declaración anterior" from the dropdown menu
+  await page.locator('text=Declaración anterior').click({ timeout: 8_000 })
+  await page.waitForTimeout(800)
+
+  // Wait for modal / date select to appear
+  await page.waitForSelector('select', { timeout: 10_000 })
 }
 
 // ─── Import to Next.js API ────────────────────────────────────────────────────
@@ -271,7 +243,7 @@ async function importToAPI(csvText, filename) {
 
   const data = await res.json()
   if (data.error) throw new Error(data.error)
-  console.log(`  API response: ${data.synced} lines imported`)
+  console.log(`  ✓ API: ${data.synced} lines imported`)
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

@@ -45,7 +45,9 @@ async function main() {
 
   try {
     await login(page)
-    await page.goto(PAYMENTS_URL, { waitUntil: 'networkidle' })
+    await page.goto(PAYMENTS_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
+    // Wait for any heading or content — avoids networkidle timeout on SPAs
+    await page.waitForSelector('h1, [class*="payment"], [class*="statement"], main', { timeout: 30_000 })
 
     const dates = await getAvailableDates(page)
     if (!dates.length) {
@@ -85,76 +87,63 @@ async function main() {
 
 async function login(page) {
   console.log('Navigating to Seller Center...')
-  await page.goto(PORTAL_BASE, { waitUntil: 'domcontentloaded' })
+  // Go directly to payments page — it will redirect to login if not authenticated
+  await page.goto(PAYMENTS_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
   await page.waitForTimeout(2000)
 
-  // If already authenticated (unlikely in headless fresh context, but handle it)
-  if (await isAuthenticated(page)) {
+  const urlAfterNav = page.url()
+  console.log('URL after navigation:', urlAfterNav)
+
+  // If already on the payments page we're done (unlikely in fresh headless context)
+  if (urlAfterNav.includes('/payments/statements')) {
     console.log('Already authenticated.')
     return
   }
 
-  // Click Sign In if present on landing page
-  const signInBtn = page.locator('a:has-text("Sign In"), button:has-text("Sign In"), a:has-text("Iniciar sesión")')
-  if (await signInBtn.count() > 0) {
-    await signInBtn.first().click()
-    await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(1000)
-  }
-
-  // Wait for email input
+  // Fill email
   await page.waitForSelector(
     'input[type="email"], input[name="email"], input[id*="email" i], input[autocomplete="email"]',
-    { timeout: 20_000 }
+    { timeout: 30_000 }
   )
-  console.log('Filling credentials...')
-
+  console.log('Filling email...')
   await page.fill(
     'input[type="email"], input[name="email"], input[id*="email" i], input[autocomplete="email"]',
     EMAIL
   )
 
-  // Some flows split email / password into two screens
+  // Some flows split email / password on separate screens
   const continueBtn = page.locator(
     'button:has-text("Continue"), button:has-text("Continuar"), button:has-text("Next")'
   )
   if (await continueBtn.count() > 0) {
     await continueBtn.first().click()
-    await page.waitForTimeout(1500)
+    await page.waitForTimeout(2000)
   }
 
-  await page.waitForSelector('input[type="password"]', { timeout: 15_000 })
+  // Fill password
+  await page.waitForSelector('input[type="password"]', { timeout: 20_000 })
+  console.log('Filling password...')
   await page.fill('input[type="password"]', PASSWORD)
 
+  // Submit
   await page.click(
     'button[type="submit"], button:has-text("Sign In"), button:has-text("Log In"), button:has-text("Iniciar sesión")'
   )
-  await page.waitForLoadState('networkidle')
+
+  // Wait for redirect away from login
+  await page.waitForURL(url => !url.includes('login') && !url.includes('signin'), { timeout: 30_000 })
   await page.waitForTimeout(2000)
 
-  if (!await isAuthenticated(page)) {
-    await page.screenshot({ path: 'debug-login-failed.png' })
-    throw new Error(`Login failed. URL after submit: ${page.url()}`)
-  }
-  console.log('Login OK')
-}
-
-async function isAuthenticated(page) {
-  const url = page.url()
-  return (
-    url.includes('/dashboard') ||
-    url.includes('/home') ||
-    url.includes('/payments') ||
-    url.includes('/catalog') ||
-    (!url.includes('login') && !url.includes('signin') && !url.includes('account.walmart'))
-  )
+  console.log('Login OK — URL:', page.url())
+  await page.screenshot({ path: 'debug-after-login.png' })
 }
 
 // ─── Get available dates ──────────────────────────────────────────────────────
 
 async function getAvailableDates(page) {
-  await page.goto(PAYMENTS_URL, { waitUntil: 'networkidle' })
-  await page.waitForTimeout(1500)
+  await page.goto(PAYMENTS_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
+  await page.waitForSelector('h1, [class*="payment"], main', { timeout: 30_000 })
+  await page.waitForTimeout(2000)
 
   // Open the download dropdown
   await page.click(
@@ -210,8 +199,9 @@ async function extractDropdownOptions(page) {
 // ─── Download a single statement ─────────────────────────────────────────────
 
 async function downloadStatement(page, date) {
-  await page.goto(PAYMENTS_URL, { waitUntil: 'networkidle' })
-  await page.waitForTimeout(1000)
+  await page.goto(PAYMENTS_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
+  await page.waitForSelector('h1, [class*="payment"], main', { timeout: 30_000 })
+  await page.waitForTimeout(1500)
 
   // Open download dropdown
   await page.click(

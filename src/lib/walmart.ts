@@ -255,7 +255,9 @@ export async function fetchAvailableReconDates(token: string): Promise<string[]>
 }
 
 export async function fetchReconReport(token: string, reportDate: string): Promise<string> {
-  const params = new URLSearchParams({ reportVersion: 'v1', reportDate })
+  // API requires MMddyyyy; convert from YYYY-MM-DD if needed
+  const mmddyyyy = reportDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2$3$1')
+  const params = new URLSearchParams({ reportVersion: 'v1', reportDate: mmddyyyy })
   const res = await fetch(`${BASE_URL}/v3/report/reconreport/reconFile?${params}`, {
     headers: walmartHeaders(token, 'application/octet-stream, text/plain, */*'),
     signal: AbortSignal.timeout(60_000),

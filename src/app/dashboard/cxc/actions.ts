@@ -302,8 +302,16 @@ export async function importPaymentCSV(
     : (lines[0].paymentDate || new Date().toISOString().split('T')[0])
   const requestId = `upload-${periodDate}`
 
+  const rows = paymentLinesToRows(lines, requestId)
   await admin.from('walmart_payments').delete().eq('request_id', requestId)
-  await admin.from('walmart_payments').insert(paymentLinesToRows(lines, requestId))
+
+  // Insert in chunks of 500 to avoid Supabase "Maximum array nesting exceeded"
+  const CHUNK = 500
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { error } = await admin.from('walmart_payments').insert(rows.slice(i, i + CHUNK))
+    if (error) throw new Error(`Insert chunk ${i}: ${error.message}`)
+  }
+
   await admin.from('walmart_payment_requests').upsert({
     request_id: requestId,
     status: 'PROCESSED',

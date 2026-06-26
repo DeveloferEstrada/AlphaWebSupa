@@ -245,13 +245,22 @@ export function parsePaymentCSV(csv: string): PaymentLine[] {
 
 // Strategy 1 — Legacy synchronous GET endpoint
 export async function fetchAvailableReconDates(token: string): Promise<string[]> {
-  const res = await fetch(`${BASE_URL}/v3/report/reconreport/availableReconFiles`, {
+  const params = new URLSearchParams({ reportVersion: 'v1' })
+  const res = await fetch(`${BASE_URL}/v3/report/reconreport/availableReconFiles?${params}`, {
     headers: walmartHeaders(token),
     signal: AbortSignal.timeout(30_000),
   })
   if (!res.ok) throw new Error(`availableReconFiles ${res.status}: ${await res.text()}`)
   const data = await res.json()
-  return (data.availableApReportDates ?? data.availableDates ?? []) as string[]
+  console.log('[availableReconFiles] raw:', JSON.stringify(data))
+  return (
+    data.availableApReportDates ??
+    data.availableDates ??
+    data.availableReconDates ??
+    data.reportDates ??
+    data.dates ??
+    []
+  ) as string[]
 }
 
 export async function fetchReconReport(token: string, reportDate: string): Promise<string> {

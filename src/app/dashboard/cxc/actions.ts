@@ -55,44 +55,45 @@ export async function syncWalmartOrders(): Promise<{ synced: number; error?: str
 
     if (!orders.length) break
 
-    for (const order of orders) {
-      const orderTotal = (order as WalmartOrder & { _total: number })._total
-        ?? order.orderLines.reduce((sum, l) => sum + l.totalPrice, 0)
+    const syncedAt = new Date().toISOString()
 
-      await admin.from('walmart_orders').upsert(
-        {
-          purchase_order_id: order.purchaseOrderId,
-          customer_order_id: order.customerOrderId,
-          status: order.status,
-          order_date: order.orderDate || null,
-          total_amount: orderTotal,
-          currency: 'MXN',
-          raw_data: order.raw,
-          synced_at: new Date().toISOString(),
-        },
-        { onConflict: 'purchase_order_id' }
-      )
+    // Batch upsert all orders in page (1 DB call instead of 100)
+    await admin.from('walmart_orders').upsert(
+      orders.map(order => ({
+        purchase_order_id: order.purchaseOrderId,
+        customer_order_id: order.customerOrderId,
+        status: order.status,
+        order_date: order.orderDate || null,
+        total_amount: (order as WalmartOrder & { _total: number })._total
+          ?? order.orderLines.reduce((s, l) => s + l.totalPrice, 0),
+        currency: 'MXN',
+        raw_data: order.raw,
+        synced_at: syncedAt,
+      })),
+      { onConflict: 'purchase_order_id' }
+    )
 
-      if (order.orderLines.length > 0) {
-        await admin.from('walmart_order_lines').delete()
-          .eq('purchase_order_id', order.purchaseOrderId)
+    // Batch delete + insert order lines (2 DB calls instead of 200)
+    const poIds = orders.map(o => o.purchaseOrderId)
+    await admin.from('walmart_order_lines').delete().in('purchase_order_id', poIds)
 
-        await admin.from('walmart_order_lines').insert(
-          order.orderLines.map(l => ({
-            purchase_order_id: order.purchaseOrderId,
-            line_number: l.lineNumber,
-            sku: l.sku,
-            product_name: l.productName,
-            quantity: l.quantity,
-            unit_price: l.unitPrice,
-            total_price: l.totalPrice,
-            status: l.status,
-          }))
-        )
-      }
-
-      totalSynced++
+    const allLines = orders.flatMap(order =>
+      order.orderLines.map(l => ({
+        purchase_order_id: order.purchaseOrderId,
+        line_number: l.lineNumber,
+        sku: l.sku,
+        product_name: l.productName,
+        quantity: l.quantity,
+        unit_price: l.unitPrice,
+        total_price: l.totalPrice,
+        status: l.status,
+      }))
+    )
+    if (allLines.length > 0) {
+      await admin.from('walmart_order_lines').insert(allLines)
     }
+
+    totalSynced += orders.length
 
     // '*' is Solr's initial cursor — if returned again, there are no more pages
     if (!nextCursor || nextCursor === '*' || nextCursor === cursor) break

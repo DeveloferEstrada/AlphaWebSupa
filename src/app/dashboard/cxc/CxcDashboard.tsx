@@ -163,8 +163,12 @@ export default function CxcDashboard({
       try {
         const result = await requestWalmartPayments()
         if (result.method === 'legacy') {
-          setMsg(`Pagos sincronizados — ${result.synced} líneas importadas.`)
-          router.refresh()
+          if (result.error) {
+            setMsg(`Error: ${result.error}`)
+          } else {
+            setMsg(`Pagos sincronizados — ${result.synced} líneas importadas.`)
+            router.refresh()
+          }
         } else {
           setPayReq({ request_id: result.requestId!, status: 'RECEIVED', rows_imported: 0, requested_at: new Date().toISOString() })
           setMsg('Reporte solicitado. Walmart lo generará en ~15-45 min. La página verificará automáticamente.')

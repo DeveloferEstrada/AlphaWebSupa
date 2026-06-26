@@ -201,11 +201,15 @@ export async function requestWalmartPayments(): Promise<PaymentRequestResult> {
 
   let total = 0
   const lastError: string[] = []
+  let firstRawPreview = ''
 
   for (const d of dates.slice(0, 6)) {
     try {
       const csv = await fetchReconReport(token, d)
+      if (!firstRawPreview) firstRawPreview = csv.slice(0, 120).replace(/\n/g, '↵')
+      console.log(`[payments] reconFile ${d}: ${csv.length} bytes, preview: ${csv.slice(0, 80)}`)
       const lines = parsePaymentCSV(csv)
+      console.log(`[payments] parsed ${lines.length} lines from ${d}`)
       if (!lines.length) continue
 
       const rid = `legacy-${d}`
@@ -221,16 +225,17 @@ export async function requestWalmartPayments(): Promise<PaymentRequestResult> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.warn(`[payments] reconFile ${d} failed:`, msg)
-      lastError.push(`${d}: ${msg.slice(0, 80)}`)
+      lastError.push(`${d}: ${msg.slice(0, 100)}`)
     }
   }
 
   if (total === 0) {
-    return {
-      method: 'legacy',
-      synced: 0,
-      error: `Sin datos de pago disponibles. ${lastError[0] ?? 'Verifica en el portal de Seller Center.'}`,
-    }
+    const detail = lastError.length > 0
+      ? lastError.slice(0, 2).join(' | ')
+      : firstRawPreview
+        ? `Respuesta recibida pero sin líneas: "${firstRawPreview.slice(0, 100)}"`
+        : `Fechas probadas: ${dates.slice(0, 3).join(', ')} — sin respuesta`
+    return { method: 'legacy', synced: 0, error: detail }
   }
 
   revalidatePath('/dashboard/cxc')

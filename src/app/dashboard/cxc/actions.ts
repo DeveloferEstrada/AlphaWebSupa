@@ -7,7 +7,6 @@ import {
   fetchOrdersPage,
   fetchAvailableReconDates,
   fetchReconReport,
-  requestAsyncPaymentReport,
   checkAsyncPaymentReport,
   downloadAsyncPaymentReport,
   parsePaymentCSV,
@@ -172,50 +171,70 @@ export interface PaymentRequestResult {
   error?: string
 }
 
+// Walmart MX cuts payments weekly on Wednesdays; statements published Thursdays
+function recentStatementDates(n: number): string[] {
+  const dates: string[] = []
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  while (d.getDay() !== 4) d.setDate(d.getDate() - 1) // rewind to last Thursday
+  for (let i = 0; i < n; i++) {
+    dates.push(d.toISOString().split('T')[0])
+    d.setDate(d.getDate() - 7)
+  }
+  return dates
+}
+
 export async function requestWalmartPayments(): Promise<PaymentRequestResult> {
   await requireCxcUser()
   const token = await getWalmartToken()
   const admin = createAdminClient()
 
-  // Strategy 1: legacy GET (synchronous — instant if supported by MX)
+  // Get candidate dates: from API if available, otherwise compute recent Thursdays
+  let dates: string[] = []
   try {
-    const dates = await fetchAvailableReconDates(token)
-    if (dates.length > 0) {
-      let total = 0
-      for (const d of dates.slice(0, 6)) {
-        const csv = await fetchReconReport(token, d)
-        const lines = parsePaymentCSV(csv)
-        if (!lines.length) continue
+    dates = await fetchAvailableReconDates(token)
+    console.log('[payments] availableReconDates:', dates)
+  } catch (err) {
+    console.warn('[payments] availableReconFiles failed, using computed dates:', err)
+  }
+  if (!dates.length) dates = recentStatementDates(6)
 
-        const rid = `legacy-${d}`
-        await admin.from('walmart_payments').delete().eq('request_id', rid)
-        await admin.from('walmart_payments').insert(paymentLinesToRows(lines, rid))
-        await admin.from('walmart_payment_requests').upsert({
-          request_id: rid,
-          status: 'PROCESSED',
-          completed_at: new Date().toISOString(),
-          rows_imported: lines.length,
-        }, { onConflict: 'request_id' })
+  let total = 0
+  const lastError: string[] = []
 
-        total += lines.length
-      }
-      revalidatePath('/dashboard/cxc')
-      return { method: 'legacy', synced: total }
+  for (const d of dates.slice(0, 6)) {
+    try {
+      const csv = await fetchReconReport(token, d)
+      const lines = parsePaymentCSV(csv)
+      if (!lines.length) continue
+
+      const rid = `legacy-${d}`
+      await admin.from('walmart_payments').delete().eq('request_id', rid)
+      await admin.from('walmart_payments').insert(paymentLinesToRows(lines, rid))
+      await admin.from('walmart_payment_requests').upsert({
+        request_id: rid,
+        status: 'PROCESSED',
+        completed_at: new Date().toISOString(),
+        rows_imported: lines.length,
+      }, { onConflict: 'request_id' })
+      total += lines.length
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn(`[payments] reconFile ${d} failed:`, msg)
+      lastError.push(`${d}: ${msg.slice(0, 80)}`)
     }
-  } catch {
-    // Legacy endpoint not supported for MX — fall through to async
   }
 
-  // Strategy 2: async on-request reports API
-  const requestId = await requestAsyncPaymentReport(token)
-  await admin.from('walmart_payment_requests').upsert({
-    request_id: requestId,
-    status: 'RECEIVED',
-    requested_at: new Date().toISOString(),
-    rows_imported: 0,
-  }, { onConflict: 'request_id' })
+  if (total === 0) {
+    return {
+      method: 'legacy',
+      synced: 0,
+      error: `Sin datos de pago disponibles. ${lastError[0] ?? 'Verifica en el portal de Seller Center.'}`,
+    }
+  }
 
-  return { method: 'async', requestId }
+  revalidatePath('/dashboard/cxc')
+  return { method: 'legacy', synced: total }
 }
 
 export async function pollWalmartPaymentReport(

@@ -39,6 +39,24 @@ interface Props {
   paymentLines: PaymentLineRow[]
 }
 
+type DatePreset = '7d' | 'mes' | 'mes_ant' | '90d' | 'todo'
+const DATE_PRESETS: [DatePreset, string][] = [
+  ['7d', '7 días'], ['mes', 'Este mes'], ['mes_ant', 'Mes anterior'], ['90d', '90 días'], ['todo', 'Todo'],
+]
+const PAGE_SIZE = 200
+
+function presetRange(p: DatePreset): { from?: Date; to?: Date } {
+  const now = new Date()
+  if (p === '7d') return { from: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6) }
+  if (p === 'mes') return { from: new Date(now.getFullYear(), now.getMonth(), 1) }
+  if (p === 'mes_ant') {
+    const m0 = new Date(now.getFullYear(), now.getMonth(), 1)
+    return { from: new Date(m0.getFullYear(), m0.getMonth() - 1, 1), to: new Date(m0.getTime() - 1) }
+  }
+  if (p === '90d') return { from: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 89) }
+  return {}
+}
+
 const STATUS_COLORS: Record<string, string> = {
   Created: 'bg-blue-100 text-blue-700',
   Acknowledged: 'bg-yellow-100 text-yellow-700',
@@ -88,7 +106,11 @@ export default function CxcDashboard({
   // Orders state
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [datePreset, setDatePreset] = useState<DatePreset>('90d')
+  const [tablePage, setTablePage] = useState(0)
   const [expanded, setExpanded] = useState<string | null>(null)
+
+  useEffect(() => { setTablePage(0) }, [search, statusFilter, datePreset])
 
   // Payments state
   const [payReq, setPayReq] = useState<PaymentRequest | null>(lastPaymentRequest)
@@ -162,13 +184,22 @@ export default function CxcDashboard({
 
   // Orders filtered
   const statuses = [...new Set(orders.map(o => o.status).filter(Boolean))]
+  const { from: dateFrom, to: dateTo } = presetRange(datePreset)
   const filtered = orders.filter(o => {
+    if (dateFrom || dateTo) {
+      const d = new Date(o.order_date)
+      if (dateFrom && d < dateFrom) return false
+      if (dateTo && d > dateTo) return false
+    }
     const matchSearch = !search ||
       o.purchase_order_id.toLowerCase().includes(search.toLowerCase()) ||
       o.customer_order_id?.toLowerCase().includes(search.toLowerCase())
     const matchStatus = !statusFilter || o.status === statusFilter
     return matchSearch && matchStatus
   })
+  const filteredTotal = filtered.reduce((s, o) => s + (Number(o.total_amount) || 0), 0)
+  const pageCount = Math.ceil(filtered.length / PAGE_SIZE)
+  const displayedOrders = filtered.slice(tablePage * PAGE_SIZE, (tablePage + 1) * PAGE_SIZE)
 
   // Payment summary by concepto
   const paymentSummary = paymentLines.reduce<Record<string, number>>((acc, l) => {
@@ -248,21 +279,32 @@ export default function CxcDashboard({
         <div className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-xs text-gray-500">Total órdenes</p>
-              <p className="text-2xl font-bold text-[#1e2756] mt-1">{orders.length}</p>
+              <p className="text-xs text-gray-500">Órdenes en período</p>
+              <p className="text-2xl font-bold text-[#1e2756] mt-1">{filtered.length}</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <p className="text-xs text-gray-500">Monto total</p>
-              <p className="text-xl font-bold text-[#1e2756] mt-1">{fmtMXN(totalAmount)}</p>
+              <p className="text-xl font-bold text-[#1e2756] mt-1">{fmtMXN(filteredTotal)}</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <p className="text-xs text-gray-500">Entregadas</p>
-              <p className="text-2xl font-bold text-green-600 mt-1">{orders.filter(o => o.status === 'Delivered').length}</p>
+              <p className="text-2xl font-bold text-green-600 mt-1">{filtered.filter(o => o.status === 'Delivered').length}</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <p className="text-xs text-gray-500">Canceladas</p>
-              <p className="text-2xl font-bold text-red-500 mt-1">{orders.filter(o => o.status === 'Cancelled').length}</p>
+              <p className="text-2xl font-bold text-red-500 mt-1">{filtered.filter(o => o.status === 'Cancelled').length}</p>
             </div>
+          </div>
+
+          {/* Date presets */}
+          <div className="flex gap-2 items-center flex-wrap">
+            <span className="text-xs text-gray-400">Período:</span>
+            {DATE_PRESETS.map(([p, label]) => (
+              <button key={p} onClick={() => setDatePreset(p)}
+                className={`text-xs px-3 py-1.5 rounded-full border transition ${datePreset === p ? 'bg-[#1e2756] text-white border-[#1e2756]' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'}`}>
+                {label}
+              </button>
+            ))}
           </div>
 
           <div className="flex gap-3 flex-wrap">
@@ -300,7 +342,7 @@ export default function CxcDashboard({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {filtered.map(order => (
+                  {displayedOrders.map(order => (
                     <Fragment key={order.purchase_order_id}>
                       <tr className="hover:bg-gray-50 cursor-pointer"
                         onClick={() => setExpanded(expanded === order.purchase_order_id ? null : order.purchase_order_id)}>
@@ -332,6 +374,24 @@ export default function CxcDashboard({
                   ))}
                 </tbody>
               </table>
+              {pageCount > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50">
+                  <p className="text-xs text-gray-500">
+                    {tablePage * PAGE_SIZE + 1}–{Math.min((tablePage + 1) * PAGE_SIZE, filtered.length)} de {filtered.length} órdenes
+                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setTablePage(p => p - 1)} disabled={tablePage === 0}
+                      className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-white transition">
+                      ← Anterior
+                    </button>
+                    <span className="text-xs text-gray-400 px-2 py-1.5">Pág. {tablePage + 1} / {pageCount}</span>
+                    <button onClick={() => setTablePage(p => p + 1)} disabled={tablePage >= pageCount - 1}
+                      className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-white transition">
+                      Siguiente →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

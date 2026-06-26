@@ -31,13 +31,30 @@ export default async function CxcPage() {
     .eq('id', 1)
     .maybeSingle()
 
-  // Orders — limit 50 000 to bypass PostgREST default of 1 000
-  const { data: orders, error: ordersError } = await admin
-    .from('walmart_orders')
-    .select('purchase_order_id, customer_order_id, status, order_date, total_amount, synced_at')
-    .order('order_date', { ascending: false })
-    .limit(50_000)
-  if (ordersError) console.error('[CxcPage] orders error:', ordersError.message)
+  // Orders — paginate in 1000-row chunks to bypass PostgREST max-rows cap
+  const PAGE_SIZE = 1000
+  const allOrders: {
+    purchase_order_id: string
+    customer_order_id: string
+    status: string
+    order_date: string
+    total_amount: number
+    synced_at: string
+  }[] = []
+  let from = 0
+  while (true) {
+    const { data: page, error: ordersError } = await admin
+      .from('walmart_orders')
+      .select('purchase_order_id, customer_order_id, status, order_date, total_amount, synced_at')
+      .order('order_date', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1)
+    if (ordersError) { console.error('[CxcPage] orders error:', ordersError.message); break }
+    if (!page?.length) break
+    allOrders.push(...page)
+    if (page.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+  const orders = allOrders
 
   // Last payment request
   const { data: lastPaymentReq } = await admin

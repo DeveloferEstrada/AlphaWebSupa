@@ -2,7 +2,8 @@
 
 import { Fragment, useState, useTransition, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { syncWalmartOrders, requestWalmartPayments, pollWalmartPaymentReport } from './actions'
+import { useRef } from 'react'
+import { syncWalmartOrders, requestWalmartPayments, pollWalmartPaymentReport, importPaymentCSV } from './actions'
 
 interface Order {
   purchase_order_id: string
@@ -115,6 +116,7 @@ export default function CxcDashboard({
   // Payments state
   const [payReq, setPayReq] = useState<PaymentRequest | null>(lastPaymentRequest)
   const [isPolling, setIsPolling] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isAsyncPending = payReq && ASYNC_PENDING.includes(payReq.status)
 
@@ -179,6 +181,31 @@ export default function CxcDashboard({
     })
   }
 
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setMsg(null)
+    const reader = new FileReader()
+    reader.onload = () => {
+      const content = reader.result as string
+      startTransition(async () => {
+        try {
+          const result = await importPaymentCSV(content, file.name)
+          if (result.error) {
+            setMsg(`Error: ${result.error}`)
+          } else {
+            setMsg(`${result.synced} líneas importadas de "${file.name}".`)
+            router.refresh()
+          }
+        } catch (err) {
+          setMsg(`Error: ${err instanceof Error ? err.message : 'Error inesperado'}`)
+        }
+      })
+    }
+    reader.readAsText(file)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   function handleManualPoll() {
     setMsg(null)
     startTransition(async () => {
@@ -233,10 +260,13 @@ export default function CxcDashboard({
             </button>
           )}
           {tab === 'payments' && (
-            <button onClick={handleRequestPayments} disabled={isPending || !!isAsyncPending}
-              className="bg-[#1e2756] hover:bg-[#16204a] disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
-              {isPending ? 'Solicitando...' : '↻ Sincronizar Pagos'}
-            </button>
+            <>
+              <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
+              <button onClick={() => fileInputRef.current?.click()} disabled={isPending}
+                className="bg-[#1e2756] hover:bg-[#16204a] disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+                {isPending ? 'Importando...' : '↑ Cargar estado de cuenta (.csv)'}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -406,7 +436,10 @@ export default function CxcDashboard({
         <div className="space-y-4">
           {paymentLines.length === 0 && !isAsyncPending ? (
             <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400 text-sm">
-              Sin datos de pagos. Haz clic en &quot;Sincronizar Pagos&quot; para solicitar el reporte a Walmart.
+              Sin datos de pagos. Descarga el estado de cuenta desde{' '}
+            <a href="https://seller.walmart.com/payments/statements/period" target="_blank" rel="noopener noreferrer"
+              className="underline text-blue-500">seller.walmart.com → Pagos → Estado de cuenta</a>
+            {' '}y cárgalo con el botón &quot;Cargar estado de cuenta&quot;.
             </div>
           ) : (
             <>

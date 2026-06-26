@@ -280,3 +280,37 @@ export async function pollWalmartPaymentReport(
 
   return { status, ready: false }
 }
+
+// ─── CSV Upload ───────────────────────────────────────────────────
+// Walmart MX does not expose reconreport via API — user downloads
+// from seller.walmart.com/payments/statements/period and uploads here.
+
+export async function importPaymentCSV(
+  csvContent: string,
+  filename: string
+): Promise<{ synced: number; error?: string }> {
+  await requireCxcUser()
+  const admin = createAdminClient()
+
+  const lines = parsePaymentCSV(csvContent)
+  if (!lines.length) return { synced: 0, error: 'El archivo no contiene líneas de pago válidas.' }
+
+  // Derive period date from first row or filename (e.g. "ElecTronix._06-25-2026.csv")
+  const filenameDate = filename.match(/(\d{2}-\d{2}-\d{4})/)
+  const periodDate = filenameDate
+    ? filenameDate[1].replace(/^(\d{2})-(\d{2})-(\d{4})$/, '$3-$1-$2') // MM-DD-YYYY → YYYY-MM-DD
+    : (lines[0].paymentDate || new Date().toISOString().split('T')[0])
+  const requestId = `upload-${periodDate}`
+
+  await admin.from('walmart_payments').delete().eq('request_id', requestId)
+  await admin.from('walmart_payments').insert(paymentLinesToRows(lines, requestId))
+  await admin.from('walmart_payment_requests').upsert({
+    request_id: requestId,
+    status: 'PROCESSED',
+    completed_at: new Date().toISOString(),
+    rows_imported: lines.length,
+  }, { onConflict: 'request_id' })
+
+  revalidatePath('/dashboard/cxc')
+  return { synced: lines.length }
+}

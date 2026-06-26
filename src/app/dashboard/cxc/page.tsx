@@ -31,11 +31,12 @@ export default async function CxcPage() {
     .eq('id', 1)
     .maybeSingle()
 
-  // Orders
+  // Orders — limit 50 000 to bypass PostgREST default of 1 000
   const { data: orders, error: ordersError } = await admin
     .from('walmart_orders')
     .select('purchase_order_id, customer_order_id, status, order_date, total_amount, synced_at')
     .order('order_date', { ascending: false })
+    .limit(50_000)
   if (ordersError) console.error('[CxcPage] orders error:', ordersError.message)
 
   // Last payment request

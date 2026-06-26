@@ -23,12 +23,28 @@ export default async function CxcPage() {
   }
 
   const admin = createAdminClient()
-  const { data: orders, error } = await admin
+
+  // Orders
+  const { data: orders, error: ordersError } = await admin
     .from('walmart_orders')
     .select('purchase_order_id, customer_order_id, status, order_date, total_amount, synced_at')
     .order('order_date', { ascending: false })
+  if (ordersError) console.error('[CxcPage] orders error:', ordersError.message)
 
-  if (error) console.error('[CxcPage] orders query error:', error.message)
+  // Last payment request
+  const { data: lastPaymentReq } = await admin
+    .from('walmart_payment_requests')
+    .select('request_id, status, rows_imported, requested_at, completed_at')
+    .order('requested_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  // Payment lines (last 1000 rows for display)
+  const { data: paymentLines } = await admin
+    .from('walmart_payments')
+    .select('payment_date, order_number, concepto, ingreso_egreso, amount')
+    .order('created_at', { ascending: false })
+    .limit(1000)
 
   const totalAmount = (orders ?? []).reduce((sum, o) => sum + (Number(o.total_amount) ?? 0), 0)
   const lastSynced = orders?.[0]?.synced_at ?? undefined
@@ -38,6 +54,8 @@ export default async function CxcPage() {
       orders={orders ?? []}
       totalAmount={totalAmount}
       lastSynced={lastSynced}
+      lastPaymentRequest={lastPaymentReq ?? null}
+      paymentLines={paymentLines ?? []}
     />
   )
 }

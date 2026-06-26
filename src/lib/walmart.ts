@@ -5,6 +5,17 @@ function cid() {
   return crypto.randomUUID()
 }
 
+function walmartHeaders(token: string, accept = 'application/json') {
+  return {
+    Authorization: `Bearer ${token}`,
+    'WM_SEC.ACCESS_TOKEN': token,
+    'WM_MARKET': MARKET,
+    'WM_QOS.CORRELATION_ID': cid(),
+    'WM_SVC.NAME': 'MegaAudio CXC',
+    Accept: accept,
+  }
+}
+
 export async function getWalmartToken(): Promise<string> {
   const clientId = process.env.WALMART_CLIENT_ID!
   const clientSecret = process.env.WALMART_CLIENT_SECRET!
@@ -36,6 +47,8 @@ export async function getWalmartToken(): Promise<string> {
   }
   return token
 }
+
+// ─── Orders ─────────────────────────────────────────────────────
 
 export interface WalmartOrdersPage {
   orders: WalmartOrder[]
@@ -77,14 +90,7 @@ export async function fetchOrdersPage(
   if (nextCursor) params.set('nextCursor', nextCursor)
 
   const res = await fetch(`${BASE_URL}/v3/orders?${params}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'WM_SEC.ACCESS_TOKEN': token,
-      'WM_MARKET': MARKET,
-      'WM_QOS.CORRELATION_ID': cid(),
-      'WM_SVC.NAME': 'MegaAudio CXC',
-      Accept: 'application/json',
-    },
+    headers: walmartHeaders(token),
     signal: AbortSignal.timeout(30_000),
   })
 
@@ -170,4 +176,127 @@ export async function fetchOrdersPage(
     nextCursor: (meta.nextCursorMark ?? meta.nextCursor) as string | undefined,
     totalCount: meta.totalCount as number | undefined,
   }
+}
+
+// ─── Payment / Recon Report ──────────────────────────────────────
+
+export interface PaymentLine {
+  paymentDate: string
+  orderNumber: string
+  amount: number
+  concepto: string
+  ingresoEgreso: string
+  invoiceRef: string
+  fulfillmentModel: string
+  raw: Record<string, string>
+}
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+  for (const char of line) {
+    if (char === '"') {
+      inQuotes = !inQuotes
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim().replace(/^"|"$/g, ''))
+      current = ''
+    } else {
+      current += char
+    }
+  }
+  result.push(current.trim().replace(/^"|"$/g, ''))
+  return result
+}
+
+export function parsePaymentCSV(csv: string): PaymentLine[] {
+  const lines = csv.split('\n').map(l => l.trim()).filter(Boolean)
+  if (lines.length < 2) return []
+
+  const headers = parseCSVLine(lines[0])
+  const results: PaymentLine[] = []
+
+  for (let i = 1; i < lines.length; i++) {
+    const values = parseCSVLine(lines[i])
+    const row: Record<string, string> = {}
+    headers.forEach((h, idx) => { row[h] = values[idx] ?? '' })
+
+    const orderNum = (
+      row['Numero de pedido'] ?? row['Order Number'] ?? row['orderNumber'] ?? ''
+    ).split('-')[0].trim()
+
+    results.push({
+      paymentDate: row['Fecha de pago'] ?? row['Payment Date'] ?? '',
+      orderNumber: orderNum,
+      amount: Number(row['Importe pagado por Walmart'] ?? row['Amount'] ?? '0'),
+      concepto: row['Concepto'] ?? row['Transaction Type'] ?? '',
+      ingresoEgreso: row['Ingreso / Egreso'] ?? '',
+      invoiceRef: String(row['Referencia a Factura'] ?? row['Invoice Reference'] ?? ''),
+      fulfillmentModel: row['Modelo entrega Segura'] ?? row['LINEA'] ?? '',
+      raw: row,
+    })
+  }
+
+  return results
+}
+
+// Strategy 1 — Legacy synchronous GET endpoint
+export async function fetchAvailableReconDates(token: string): Promise<string[]> {
+  const res = await fetch(`${BASE_URL}/v3/report/reconreport/availableReconFiles`, {
+    headers: walmartHeaders(token),
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!res.ok) throw new Error(`availableReconFiles ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  return (data.availableApReportDates ?? data.availableDates ?? []) as string[]
+}
+
+export async function fetchReconReport(token: string, reportDate: string): Promise<string> {
+  const params = new URLSearchParams({ reportVersion: 'v1', reportDate })
+  const res = await fetch(`${BASE_URL}/v3/report/reconreport/reconFile?${params}`, {
+    headers: walmartHeaders(token, 'application/octet-stream, text/plain, */*'),
+    signal: AbortSignal.timeout(60_000),
+  })
+  if (!res.ok) throw new Error(`reconFile ${res.status}: ${await res.text()}`)
+  return res.text()
+}
+
+// Strategy 2 — Async on-request reports API
+export async function requestAsyncPaymentReport(token: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/v3/reports/reportRequests?reportType=RECON&reportVersion=v1`, {
+    method: 'POST',
+    headers: {
+      ...walmartHeaders(token),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({}),
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!res.ok) throw new Error(`reportRequests ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  const requestId = (data.requestId ?? data.requestID) as string
+  if (!requestId) throw new Error(`Sin requestId en respuesta: ${JSON.stringify(data)}`)
+  return requestId
+}
+
+export async function checkAsyncPaymentReport(
+  token: string,
+  requestId: string
+): Promise<{ status: string; downloadURL?: string }> {
+  const res = await fetch(`${BASE_URL}/v3/reports/reportRequests/${requestId}`, {
+    headers: walmartHeaders(token),
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!res.ok) throw new Error(`reportStatus ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  return {
+    status: String(data.status ?? data.requestStatus ?? 'UNKNOWN'),
+    downloadURL: (data.downloadURL ?? data.downloadUrl) as string | undefined,
+  }
+}
+
+export async function downloadAsyncPaymentReport(downloadURL: string): Promise<string> {
+  const res = await fetch(downloadURL, { signal: AbortSignal.timeout(120_000) })
+  if (!res.ok) throw new Error(`download ${res.status}`)
+  return res.text()
 }

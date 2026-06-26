@@ -108,21 +108,26 @@ export async function syncWalmartOrders(): Promise<{
   while (current < now && weeksProcessed < MAX_WEEKS) {
     const windowEnd = new Date(Math.min(current.getTime() + WEEK_MS, now.getTime()))
 
-    let cursor: string | undefined
-    for (let page = 0; page < 10; page++) {
-      const { orders, nextCursor } = await fetchOrdersPage(
-        token,
-        current.toISOString(),
-        windowEnd.toISOString(),
-        cursor
-      )
-      if (!orders.length) break
+    try {
+      let cursor: string | undefined
+      for (let page = 0; page < 10; page++) {
+        const { orders, nextCursor } = await fetchOrdersPage(
+          token,
+          current.toISOString(),
+          windowEnd.toISOString(),
+          cursor
+        )
+        if (!orders.length) break
 
-      await upsertOrderBatch(admin, orders)
-      totalSynced += orders.length
+        await upsertOrderBatch(admin, orders)
+        totalSynced += orders.length
 
-      if (!nextCursor || nextCursor === '*' || nextCursor === cursor) break
-      cursor = nextCursor
+        if (!nextCursor || nextCursor === '*' || nextCursor === cursor) break
+        cursor = nextCursor
+      }
+    } catch (err) {
+      // Skip failed window and continue — transient Walmart 5xx errors
+      console.error(`[sync] Window ${current.toISOString()} skipped:`, err)
     }
 
     current = new Date(windowEnd)

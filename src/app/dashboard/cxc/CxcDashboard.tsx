@@ -117,6 +117,7 @@ export default function CxcDashboard({
   const [payReq, setPayReq] = useState<PaymentRequest | null>(lastPaymentRequest)
   const [isPolling, setIsPolling] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [conceptoFilter, setConceptoFilter] = useState('')
 
   const isAsyncPending = payReq && ASYNC_PENDING.includes(payReq.status)
 
@@ -236,6 +237,19 @@ export default function CxcDashboard({
     return acc
   }, {})
   const netoPagado = Object.values(paymentSummary).reduce((s, v) => s + v, 0)
+
+  const conceptoBreakdown = Object.entries(paymentSummary)
+    .map(([concepto, total]) => ({
+      concepto,
+      total,
+      count: paymentLines.filter(l => l.concepto === concepto).length,
+    }))
+    .sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
+
+  const allConceptos = conceptoBreakdown.map(c => c.concepto)
+  const filteredPaymentLines = conceptoFilter
+    ? paymentLines.filter(l => l.concepto === conceptoFilter)
+    : paymentLines
 
   return (
     <div className="space-y-6">
@@ -441,33 +455,51 @@ export default function CxcDashboard({
             </div>
           ) : (
             <>
-              {/* Summary cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-white rounded-xl border border-gray-200 p-4">
-                  <p className="text-xs text-gray-500">Ventas brutas</p>
-                  <p className="text-xl font-bold text-green-600 mt-1">
-                    {fmtMXN(Math.abs(paymentSummary['Venta'] ?? 0))}
-                  </p>
+              {/* Summary: neto + desglose dinámico */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-[#1e2756] rounded-xl p-4 text-white">
+                  <p className="text-xs opacity-70">Neto pagado por Walmart</p>
+                  <p className="text-2xl font-bold mt-1">{fmtMXN(netoPagado)}</p>
+                  <p className="text-xs opacity-50 mt-1">{paymentLines.length} líneas totales</p>
                 </div>
-                <div className="bg-white rounded-xl border border-gray-200 p-4">
-                  <p className="text-xs text-gray-500">Comisiones</p>
-                  <p className="text-xl font-bold text-orange-500 mt-1">
-                    {fmtMXN(Math.abs(paymentSummary['Comision'] ?? 0))}
-                  </p>
-                </div>
-                <div className="bg-white rounded-xl border border-gray-200 p-4">
-                  <p className="text-xs text-gray-500">Retenciones (ISR+IVA)</p>
-                  <p className="text-xl font-bold text-red-500 mt-1">
-                    {fmtMXN(Math.abs((paymentSummary['Retencion ISR'] ?? 0) + (paymentSummary['Retencion IVA'] ?? 0)))}
-                  </p>
-                </div>
-                <div className="bg-white rounded-xl border border-gray-200 p-4">
-                  <p className="text-xs text-gray-500">Neto pagado por Walmart</p>
-                  <p className="text-xl font-bold text-[#1e2756] mt-1">{fmtMXN(netoPagado)}</p>
+                <div className="md:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="px-4 py-2 border-b border-gray-100 bg-gray-50">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Desglose por concepto</p>
+                  </div>
+                  <div className="divide-y divide-gray-50">
+                    {conceptoBreakdown.map(({ concepto, total, count }) => (
+                      <div key={concepto} className="flex items-center justify-between px-4 py-2 hover:bg-gray-50">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${conceptoColor(concepto)}`}>
+                            {concepto || '—'}
+                          </span>
+                          <span className="text-xs text-gray-400">{count} líneas</span>
+                        </div>
+                        <span className={`text-sm font-semibold shrink-0 ml-4 ${total < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                          {fmtMXN(total)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              {/* Payments table */}
+              {/* Payments filter + table */}
+              <div className="flex gap-3 items-center flex-wrap">
+                <select value={conceptoFilter} onChange={e => setConceptoFilter(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1e2756]">
+                  <option value="">Todos los conceptos</option>
+                  {allConceptos.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                {conceptoFilter && (
+                  <button onClick={() => setConceptoFilter('')}
+                    className="text-sm text-gray-500 hover:text-gray-700 underline">Limpiar</button>
+                )}
+                <span className="text-xs text-gray-400 ml-auto">
+                  {filteredPaymentLines.length} de {paymentLines.length} líneas
+                </span>
+              </div>
+
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200">
@@ -480,7 +512,7 @@ export default function CxcDashboard({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {paymentLines.map((l, i) => (
+                    {filteredPaymentLines.map((l, i) => (
                       <tr key={i} className="hover:bg-gray-50">
                         <td className="px-4 py-2.5 text-gray-500 text-xs">{fmtDate(l.payment_date)}</td>
                         <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{l.order_number || '—'}</td>

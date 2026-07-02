@@ -64,12 +64,28 @@ export default async function CxcPage() {
     .limit(1)
     .maybeSingle()
 
-  // Payment lines (last 1000 rows for display)
-  const { data: paymentLines } = await admin
-    .from('walmart_payments')
-    .select('payment_date, order_number, concepto, ingreso_egreso, amount')
-    .order('created_at', { ascending: false })
-    .limit(1000)
+  // Payment lines — paginate to load all rows (CSV can exceed 5000 rows)
+  const allPaymentLines: {
+    payment_date: string
+    order_number: string
+    concepto: string
+    ingreso_egreso: string
+    amount: number
+  }[] = []
+  let pmFrom = 0
+  while (true) {
+    const { data: pmPage, error: pmError } = await admin
+      .from('walmart_payments')
+      .select('payment_date, order_number, concepto, ingreso_egreso, amount')
+      .order('payment_date', { ascending: false })
+      .range(pmFrom, pmFrom + PAGE_SIZE - 1)
+    if (pmError) { console.error('[CxcPage] payments error:', pmError.message); break }
+    if (!pmPage?.length) break
+    allPaymentLines.push(...pmPage)
+    if (pmPage.length < PAGE_SIZE) break
+    pmFrom += PAGE_SIZE
+  }
+  const paymentLines = allPaymentLines
 
   const totalAmount = (orders ?? []).reduce((sum, o) => sum + (Number(o.total_amount) ?? 0), 0)
   const lastSynced = orders?.[0]?.synced_at ?? undefined

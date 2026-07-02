@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
+import { MOCK_BUSART_CSV } from './mock-data'
 
 const BUSART_URL = 'http://200.188.56.106:4080/Bus-Art'
 
@@ -16,26 +17,30 @@ export async function GET(request: NextRequest) {
   }
 
   let rawCSV: string
-  try {
-    const res = await fetch(BUSART_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ Articulo: 'BASE.CSV' }),
-      signal: AbortSignal.timeout(60_000),
-    })
-    if (!res.ok) {
-      return NextResponse.json({ error: `Busart respondió ${res.status}` }, { status: 502 })
+  if (process.env.BUSART_MOCK === 'true') {
+    rawCSV = MOCK_BUSART_CSV
+  } else {
+    try {
+      const res = await fetch(BUSART_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Articulo: 'BASE.CSV' }),
+        signal: AbortSignal.timeout(60_000),
+      })
+      if (!res.ok) {
+        return NextResponse.json({ error: `Busart respondió ${res.status}` }, { status: 502 })
+      }
+      rawCSV = await res.text()
+    } catch (err) {
+      return NextResponse.json(
+        { error: 'Error conectando con Alpha ERP.', detail: String(err) },
+        { status: 502 }
+      )
     }
-    rawCSV = await res.text()
-  } catch (err) {
-    return NextResponse.json(
-      { error: 'Error conectando con Alpha ERP.', detail: String(err) },
-      { status: 502 }
-    )
-  }
 
-  if (!rawCSV.trim()) {
-    return NextResponse.json({ error: 'Respuesta vacía de Busart.' }, { status: 502 })
+    if (!rawCSV.trim()) {
+      return NextResponse.json({ error: 'Respuesta vacía de Busart.' }, { status: 502 })
+    }
   }
 
   // Skip first metadata line ("Fecha Actualizacion: ..."), parse rest as pure CSV

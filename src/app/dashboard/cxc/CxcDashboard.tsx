@@ -3,7 +3,7 @@
 import { Fragment, useState, useTransition, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useRef } from 'react'
-import { syncWalmartOrders, requestWalmartPayments, pollWalmartPaymentReport, importPaymentCSV } from './actions'
+import { syncWalmartOrders, requestWalmartPayments, pollWalmartPaymentReport } from './actions'
 
 interface Order {
   purchase_order_id: string
@@ -185,25 +185,23 @@ export default function CxcDashboard({
     const file = e.target.files?.[0]
     if (!file) return
     setMsg(null)
-    const reader = new FileReader()
-    reader.onload = () => {
-      const content = reader.result as string
-      startTransition(async () => {
-        try {
-          const result = await importPaymentCSV(content, file.name)
-          if (result.error) {
-            setMsg(`Error: ${result.error}`)
-          } else {
-            setMsg(`${result.synced} líneas importadas de "${file.name}".`)
-            router.refresh()
-          }
-        } catch (err) {
-          setMsg(`Error: ${err instanceof Error ? err.message : 'Error inesperado'}`)
-        }
-      })
-    }
-    reader.readAsText(file)
     if (fileInputRef.current) fileInputRef.current.value = ''
+    startTransition(async () => {
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        const res = await fetch('/api/import-payments', { method: 'POST', body: formData })
+        const result = await res.json()
+        if (!res.ok || result.error) {
+          setMsg(`Error: ${result.error ?? res.statusText}`)
+        } else {
+          setMsg(`${result.synced} líneas importadas de "${file.name}".`)
+          router.refresh()
+        }
+      } catch (err) {
+        setMsg(`Error: ${err instanceof Error ? err.message : 'Error inesperado'}`)
+      }
+    })
   }
 
   function handleManualPoll() {

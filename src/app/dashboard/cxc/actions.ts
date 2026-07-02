@@ -160,7 +160,7 @@ function paymentLinesToRows(lines: PaymentLine[], requestId: string) {
     ingreso_egreso: l.ingresoEgreso,
     invoice_ref: l.invoiceRef || null,
     fulfillment_model: l.fulfillmentModel || null,
-    raw_line: l.raw,
+    // raw_line intentionally omitted — too large for bulk insert (5000+ rows × 20 cols)
   }))
 }
 
